@@ -61,6 +61,17 @@ struct HexDataSource
 			int codepoint = (int)strtoull(sc.String, nullptr, 16);
 			sc.MustGetStringName(":");
 			sc.MustGetString();
+#ifdef __3DS__
+			// Every glyph becomes a texture: the whole of Unifont is tens of thousands of them,
+			// tens of megabytes on the 3DS. Keep the scripts the game's languages use (Latin, Greek,
+			// Cyrillic) and the common symbols.
+			auto wanted = [](int c)
+			{
+				return c < 0x0530 || (c >= 0x1E00 && c < 0x1F00) || (c >= 0x2000 && c < 0x2200)
+					|| (c >= 0x2500 && c < 0x25A0) || c == 0xFFFD;
+			};
+			if (!wanted(codepoint)) continue;
+#endif
 			if (codepoint >= 0 && codepoint < 65536 && !sc.Compare("00000000000000000000000000000000"))	// don't set up empty glyphs.
 			{
 				unsigned size = (unsigned)strlen(sc.String);
