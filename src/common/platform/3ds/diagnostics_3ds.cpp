@@ -79,7 +79,7 @@ CVAR(Bool, lod3ds_select_overlay, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, lod3ds_debug_tools, LOD3DS_DEBUG_TOOLS != 0, CVAR_NOSET | CVAR_NOSAVE)
 // UPDATE -> AUTO UPDATE: at start, look for a new version on the update channel and offer it
 // (I_3DSServiceUpdater). On by default (owner 2026-10-14, as in ../mzm and ../sm-3ds).
-CVAR(Bool, lod3ds_auto_update, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, lod3ds_auto_update, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, lod3ds_map_collisions, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // OPTIONS -> DEVELOPER -> FTP SERVER (debug builds): the in-game FTP server and remote control
 // (ftp_server_3ds.h, debug_link_3ds.h). Archived, so it comes back after a relaunch.

@@ -18,7 +18,7 @@ esac
 # Debug tools (PLAN Phase 1) are compiled in for beta and dev builds unless told otherwise.
 DEBUG_TOOLS="${LOD3DS_DEBUG_TOOLS:-$([[ "${CHANNEL}" == "release" ]] && printf 0 || printf 1)}"
 # The SD folder of this fork, next to (never inside) the upstream app's legend-of-doom/.
-SD_DIR_NAME="Legend of Doom 3DS"
+SD_DIR_NAME="gzdoom"
 DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
 DEVKITARM="${DEVKITARM:-${DEVKITPRO}/devkitARM}"
 BUILD_ROOT="${LOD3DS_BUILD_ROOT:-${ROOT}/build-3ds}"
@@ -452,9 +452,9 @@ if [[ ! -x "${SMDHTOOL}" ]]; then SMDHTOOL="$(command -v smdhtool)"; fi
 SMDH="${GAME_BUILD}/legend-of-doom-3ds.smdh"
 THREEDSX="${DIST}/${ARTIFACT_STEM}.3dsx"
 "${SMDHTOOL}" --create \
-  "Legend of Doom 3DS*" \
-  "Legend of Doom for Nintendo 3DS v${VERSION_LABEL}" \
-  "tinaut1986 / Esteban PDN / DeTwelve Games" \
+  "GZDoom 3DS" \
+  "GZDoom for New 3DS (test ${VERSION_LABEL})" \
+  "AlexanderV387 / tinaut1986 / EstebanPdN" \
   "${ROOT}/platform/3ds/assets/icon-48.png" "${SMDH}"
 python3 "${ROOT}/platform/3ds/tools/cia-memory.py" smdh "${SMDH}"
 # The notes the UPDATE screen shows before (or without) a network answer: the installed
@@ -539,8 +539,6 @@ cmake -E copy "${ROOT}/src/common/audio/sound/thirdparty/stb_vorbis.LICENSE" "${
 cmake -E copy "${NOVAGL_SOURCE}/README.md" "${SD_LICENSES}/NovaGL-README-MIT-NOTICE.md"
 cmake -E copy "${GAME_BUILD}/gzdoom.pk3" "${SD_DATA}/gzdoom.pk3"
 cmake -E copy "${GAME_BUILD}/game_support.pk3" "${SD_DATA}/game_support.pk3"
-cmake -E copy "${MOD_PK3}" "${SD_DATA}/LegendOfDoom.pk3"
-cmake -E copy "${IWAD}" "${SD_DATA}/freedoom2.wad"
 cmake -E copy "${FREEDOOM_SOURCE}/COPYING.txt" "${SD_DATA}/FREEDOOM-COPYING.txt"
 cmake -E copy "${MOD_SOURCE}/CREDITS" "${SD_DATA}/LEGEND-OF-DOOM-CREDITS.txt"
 
@@ -751,8 +749,6 @@ if [[ "${LOD3DS_SKIP_CIA:-0}" != "1" && -n "${MAKEROM_PATH}" && -n "${BANNERTOOL
   # Embed matching game data for self-contained CIA installation.
   cmake -E copy "${GAME_BUILD}/gzdoom.pk3" "${CIA_ROMFS_DATA}/gzdoom.pk3"
   cmake -E copy "${GAME_BUILD}/game_support.pk3" "${CIA_ROMFS_DATA}/game_support.pk3"
-  cmake -E copy "${MOD_PK3}" "${CIA_ROMFS_DATA}/LegendOfDoom.pk3"
-  cmake -E copy "${IWAD}" "${CIA_ROMFS_DATA}/freedoom2.wad"
   cmake -E copy "${BUILD_MANIFEST}" "${CIA_ROMFS}/BUILD-MANIFEST.txt"
   "${BANNERTOOL_PATH}" makebanner \
     -ci "${ROOT}/platform/3ds/assets/banner.cgfx" \

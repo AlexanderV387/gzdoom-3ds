@@ -1,6 +1,6 @@
 BasicInfo:
-  Title: "Legend of Doom 3DS*"
-  ProductCode: "CTR-P-LDOT"
+  Title: "GZDoom 3DS"
+  ProductCode: "CTR-H-GZDM"
   Logo: Homebrew
 
 RomFs:
@@ -8,7 +8,7 @@ RomFs:
 
 TitleInfo:
   Category: Application
-  UniqueId: 0x5A2D1
+  UniqueId: 0xF3D5C
 
 Option:
   UseOnSD: true

@@ -53,6 +53,11 @@
 #include "common/platform/3ds/lifecycle_3ds.h"
 #include "common/platform/3ds/memory_3ds.h"
 #include "common/platform/3ds/app_paths_3ds.h"
+#include <dirent.h>
+#include <strings.h>
+#include <algorithm>
+#include "zstring.h"
+#include "tarray.h"
 #include "lod3ds_version.h"
 
 #ifndef LOD3DS_BUILD_PROFILE_NAME
@@ -254,23 +259,17 @@ int main (int argc, char **argv)
 	const bool homebrewLaunch = envIsHomebrew();
 	static const char *const SdDataDirectory = LOD3DS_APP_DIR "/data/";
 	static const char *const RomFsDataDirectory = "romfs:/data/";
-	static const char *const SdIWad = LOD3DS_APP_DIR "/data/freedoom2.wad";
-	static const char *const RomFsIWad = "romfs:/data/freedoom2.wad";
-	static const char *const SdMod = LOD3DS_APP_DIR "/data/LegendOfDoom.pk3";
-	static const char *const RomFsMod = "romfs:/data/LegendOfDoom.pk3";
 	static const char *const SdBase = LOD3DS_APP_DIR "/data/gzdoom.pk3";
 	static const char *const RomFsBase = "romfs:/data/gzdoom.pk3";
 	static const char *const SdSupport = LOD3DS_APP_DIR "/data/game_support.pk3";
 	static const char *const RomFsSupport = "romfs:/data/game_support.pk3";
 	const char *const DataDirectory = homebrewLaunch ? SdDataDirectory : RomFsDataDirectory;
-	const char *const IWadPath = homebrewLaunch ? SdIWad : RomFsIWad;
-	const char *const ModPath = homebrewLaunch ? SdMod : RomFsMod;
 	const char *const BasePath = homebrewLaunch ? SdBase : RomFsBase;
 	const char *const SupportPath = homebrewLaunch ? SdSupport : RomFsSupport;
 
 	struct stat runtimeFile = {};
 	const char *missingPath = nullptr;
-	const char *const RuntimePaths[] = { BasePath, SupportPath, IWadPath, ModPath };
+	const char *const RuntimePaths[] = { BasePath, SupportPath };
 	for (const char *path : RuntimePaths)
 	{
 		if (stat(path, &runtimeFile) != 0)
@@ -283,13 +282,53 @@ int main (int argc, char **argv)
 	{
 		char error[512];
 		snprintf(error, sizeof(error),
-			"Legend of Doom runtime data is missing for the %s launch: %s",
+			"GZDoom engine data is missing for the %s launch: %s",
 			homebrewLaunch ? "3DSX/SD" : "CIA/RomFS", missingPath);
 		I_3DSWriteFatalLog(error);
 		fprintf(stderr, "%s\n", error);
 		return -1;
 	}
 	I_3DSStartupLog(homebrewLaunch ? "runtime-data-sd-ready" : "runtime-data-romfs-ready");
+
+	// The game and its mods come from the SD card (GZDoom 3DS): the IWAD from
+	// sdmc:/3ds/gzdoom/ (the one named in iwad.txt, else the first one found in
+	// IWadNames' order) and every mod in sdmc:/3ds/gzdoom/mods/, in name order.
+	static char iwadPath[512];
+	iwadPath[0] = 0;
+	if (FILE *chosen = fopen(LOD3DS_APP_DIR "/iwad.txt", "r"))
+	{
+		char name[256] = "";
+		if (fgets(name, sizeof(name), chosen))
+		{
+			name[strcspn(name, "\r\n")] = 0;
+			if (name[0])
+			{
+				snprintf(iwadPath, sizeof(iwadPath), LOD3DS_APP_DIR "/%s", name);
+				if (stat(iwadPath, &runtimeFile) != 0) iwadPath[0] = 0;
+			}
+		}
+		fclose(chosen);
+	}
+	static const char *const IWadNames[] = {
+		"doom2.wad", "doom.wad", "plutonia.wad", "tnt.wad", "doom2f.wad",
+		"freedoom2.wad", "freedoom1.wad", "doom1.wad", "freedm.wad",
+		"heretic.wad", "heretic1.wad", "hexen.wad", "strife1.wad",
+		"chex3.wad", "chex.wad", "harm1.wad", "hacx.wad", "rekkrsa.wad",
+	};
+	for (const char *name : IWadNames)
+	{
+		if (iwadPath[0]) break;
+		snprintf(iwadPath, sizeof(iwadPath), LOD3DS_APP_DIR "/%s", name);
+		if (stat(iwadPath, &runtimeFile) != 0) iwadPath[0] = 0;
+	}
+	if (!iwadPath[0])
+	{
+		const char *error = "No game found: copy an IWAD (doom2.wad, doom.wad, freedoom2.wad...) to sdmc:/3ds/gzdoom/";
+		I_3DSWriteFatalLog(error);
+		fprintf(stderr, "%s\n", error);
+		return -1;
+	}
+	I_3DSStartupLog(iwadPath);
 
 #ifdef LOD3DS_HARDWARE_DIAGNOSTIC
 	// Capture NovaGL's bounded first-draw diagnostics without requiring a
@@ -301,9 +340,38 @@ int main (int argc, char **argv)
 #endif
 
 	Args->AppendArg("-iwad");
-	Args->AppendArg(IWadPath);
-	Args->AppendArg("-file");
-	Args->AppendArg(ModPath);
+	Args->AppendArg(iwadPath);
+	{
+		TArray<FString> mods, patches;
+		if (DIR *dir = opendir(LOD3DS_APP_DIR "/mods"))
+		{
+			while (dirent *entry = readdir(dir))
+			{
+				const char *dot = strrchr(entry->d_name, '.');
+				if (entry->d_name[0] == '.' || dot == nullptr) continue;
+				FString path = FStringf(LOD3DS_APP_DIR "/mods/%s", entry->d_name);
+				if (!strcasecmp(dot, ".deh") || !strcasecmp(dot, ".bex")) patches.Push(path);
+				else if (!strcasecmp(dot, ".pk3") || !strcasecmp(dot, ".pk7") || !strcasecmp(dot, ".wad")
+					|| !strcasecmp(dot, ".zip") || !strcasecmp(dot, ".ipk3")) mods.Push(path);
+			}
+			closedir(dir);
+		}
+		auto byName = [](const FString &a, const FString &b) { return a.CompareNoCase(b) < 0; };
+		std::sort(mods.begin(), mods.end(), byName);
+		std::sort(patches.begin(), patches.end(), byName);
+		for (const FString &mod : mods)
+		{
+			Args->AppendArg("-file");
+			Args->AppendArg(mod);
+			I_3DSStartupLog(mod.GetChars());
+		}
+		for (const FString &patch : patches)
+		{
+			Args->AppendArg("-deh");
+			Args->AppendArg(patch);
+			I_3DSStartupLog(patch.GetChars());
+		}
+	}
 	Args->AppendArg("-width");
 	#ifdef LOD3DS_SAFE_SOFTWARE
 	#ifdef LOD3DS_HYBRID_PERFORMANCE

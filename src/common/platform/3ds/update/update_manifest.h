@@ -5,7 +5,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#define UPDATE_REPOSITORY "tinaut1986/legend-of-doom-3ds"
+#define UPDATE_REPOSITORY "AlexanderV387/gzdoom-3ds"
 #define UPDATE_MAX_FILE (128u * 1024u * 1024u)
 // The whole changelog (Update_ReleaseHistory), and what Update_FormatNotes reads.
 #define UPDATE_HISTORY_MAX 32768

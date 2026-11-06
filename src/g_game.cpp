@@ -643,10 +643,8 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 	}
 	// A Zelda-style sprint (AUTO by default, or X in CLASSIC): only while Link is at full health.
 	// Losing even a quarter-heart immediately returns to walking.
-	AActor *sprintActor = players[consoleplayer].mo;
-	const bool fullHealth = sprintActor != nullptr && sprintActor->health > 0 &&
-		sprintActor->health >= sprintActor->GetMaxHealth(true);
-	if (sprintMode == 0 || !fullHealth) speedButton = false;
+	// GZDoom 3DS: any game, so running does not depend on health.
+	if (sprintMode == 0) speedButton = false;
 	#endif
 	speed = static_cast<int>(speedButton) ^ (int)cl_run;
 
@@ -1214,7 +1212,8 @@ void G_Ticker ()
 		if (gamestate == GS_LEVEL && playeringame[consoleplayer] && !multiplayer && !demoplayback &&
 			players[consoleplayer].playerstate == PST_DEAD)
 		{
-			if (menuactive == MENU_Off && ++deadTics == DeathMenuDelayTics)
+			if (menuactive == MENU_Off && ++deadTics == DeathMenuDelayTics &&
+				MenuDescriptors.CheckKey("LegendDeathMenu") != nullptr)
 				AddCommandString("openmenu LegendDeathMenu");
 		}
 		else deadTics = 0;
