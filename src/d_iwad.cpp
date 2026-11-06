@@ -674,6 +674,9 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 #ifdef _WIN32
 			isAbsolute |= (custwad.Len() >= 2 && custwad[1] == ':');
 #endif
+#ifdef __3DS__
+			isAbsolute |= IsAbsPath(custwad.GetChars());	// sdmc:/ and romfs:/
+#endif
 			if (isAbsolute)
 			{
 				if (FileExists(custwad)) mFoundWads.Push({ custwad, "", -1 });
