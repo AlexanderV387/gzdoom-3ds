@@ -4371,6 +4371,7 @@ int GameMain()
 {
 	// On Windows, prefer the native win32 backend.
 	// On other platforms, use SDL until the other backends are more mature.
+#ifndef __3DS__	// no desktop windows on the Nintendo 3DS
 	auto zwidget = DisplayBackend::TryCreateWin32();
 	if (!zwidget)
 		zwidget = DisplayBackend::TryCreateSDL2();
@@ -4380,6 +4381,7 @@ int GameMain()
 		return -1;
 	}
 	DisplayBackend::Set(std::move(zwidget));
+#endif
 
 	int ret = 0;
 	GameTicRate = TICRATE;

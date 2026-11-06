@@ -448,6 +448,26 @@ elseif( APPLE )
 
 	set_source_files_properties( posix/osx/zdoom.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
 	set_source_files_properties( common/platform/posix/osx/iwadpicker_cocoa.mm PROPERTIES COMPILE_FLAGS -fobjc-exceptions )
+elseif( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
+	# Nintendo 3DS: its own platform layer (common/platform/3ds), SDL only for input.
+	set( SYSTEM_SOURCES_DIR common/platform/posix common/platform/3ds common/platform/posix/sdl )
+	set( SYSTEM_SOURCES
+		common/platform/posix/i_system_posix.cpp
+		common/platform/3ds/i_main_3ds.cpp
+		common/platform/3ds/i_system_3ds.cpp
+		common/platform/3ds/i_specialpaths_3ds.cpp
+		common/platform/3ds/hardware_3ds.cpp
+		common/platform/3ds/st_start_3ds.cpp
+		common/platform/3ds/widgets_3ds.cpp
+		posix/i_steam.cpp
+		common/platform/posix/sdl/i_gui.cpp
+		common/platform/posix/sdl/i_input.cpp
+		common/platform/posix/sdl/i_joystick.cpp
+		common/rendering/c3d/c3d_buffers.cpp
+		common/rendering/c3d/c3d_hwtexture.cpp
+		common/rendering/c3d/c3d_renderstate.cpp
+		common/rendering/c3d/c3d_framebuffer.cpp )
+	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} ${PLAT_UNIX_SOURCES} )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
 
@@ -1280,7 +1300,38 @@ set( GAME_SOURCES
 set( GAME_NONPCH_SOURCES ${GAME_SOURCES} )
 list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
+if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
+	# No desktop OpenGL and no desktop windows (ZWidget) on the 3DS: the citro3d backend draws.
+	list( FILTER GAME_SOURCES EXCLUDE REGEX "^common/rendering/gl(/|_load/)" )
+	list( FILTER GAME_SOURCES EXCLUDE REGEX "^widgets/" )
+	list( FILTER FASTMATH_SOURCES EXCLUDE REGEX "^common/rendering/gl(/|_load/)" )
+	list( FILTER PCH_SOURCES EXCLUDE REGEX "^common/rendering/gl(/|_load/)|^widgets/" )
+endif()
+
 add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
+
+if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
+	# The backend's vertex shader: assembled by picasso, embedded by bin2s.
+	find_program( N3DS_PICASSO picasso HINTS "$ENV{DEVKITPRO}/tools/bin" REQUIRED )
+	find_program( N3DS_BIN2S bin2s HINTS "$ENV{DEVKITPRO}/tools/bin" REQUIRED )
+	set( N3DS_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/c3d-shaders" )
+	set( N3DS_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/c3d/c3d_main.v.pica" )
+	add_custom_command(
+		OUTPUT "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_main_shbin.h"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${N3DS_SHADER_DIR}"
+		COMMAND "${N3DS_PICASSO}" -o "${N3DS_SHADER_DIR}/c3d_main.shbin" "${N3DS_SHADER_SOURCE}"
+		COMMAND sh -c "\"${N3DS_BIN2S}\" -a 4 -H \"${N3DS_SHADER_DIR}/c3d_main_shbin.h\" \"${N3DS_SHADER_DIR}/c3d_main.shbin\" > \"${N3DS_SHADER_DIR}/c3d_main_shbin.s\""
+		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_main_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_main_shbin.o"
+		DEPENDS "${N3DS_SHADER_SOURCE}"
+		VERBATIM )
+	add_custom_target( n3ds_shader DEPENDS "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_main_shbin.h" )
+	add_dependencies( zdoom n3ds_shader )
+	set_source_files_properties( "${N3DS_SHADER_DIR}/c3d_main_shbin.o" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE )
+	target_sources( zdoom PRIVATE "${N3DS_SHADER_DIR}/c3d_main_shbin.o" )
+	target_include_directories( zdoom PRIVATE "${N3DS_SHADER_DIR}" common/rendering/c3d common/platform/3ds )
+	target_link_libraries( zdoom citro3d )
+	target_link_options( zdoom PRIVATE "-Wl,-Map,${CMAKE_BINARY_DIR}/uzdoom.map" )
+endif()
 
 target_include_directories( zdoom PRIVATE ${CMAKE_BINARY_DIR} )
 

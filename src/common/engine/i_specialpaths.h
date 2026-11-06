@@ -26,7 +26,7 @@
 #include "version.h"
 #include "zstring.h"
 
-#if defined(__unix__) || defined(__HAIKU__)
+#if defined(__unix__) || defined(__HAIKU__) || defined(__3DS__)
 FString GetUserFile (const char *path);
 const char * GetConfigPath();
 const char * GetCachePath();

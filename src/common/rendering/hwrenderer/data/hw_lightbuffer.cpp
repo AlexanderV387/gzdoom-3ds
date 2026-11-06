@@ -26,7 +26,11 @@ static const int ELEMENT_SIZE = (4*sizeof(float));
 FLightBuffer::FLightBuffer(int pipelineNbr):
 	mPipelineNbr(pipelineNbr)
 {
+#ifdef __3DS__
+	int maxNumberOfLights = 8000;	// lights are read by the CPU on the 3DS
+#else
 	int maxNumberOfLights = 80000;
+#endif
 
 	mBufferSize = maxNumberOfLights * ELEMENTS_PER_LIGHT;
 	mByteSize = mBufferSize * ELEMENT_SIZE;

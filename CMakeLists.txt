@@ -14,6 +14,7 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
 	set(CMAKE_CXX_EXTENSIONS ON)
 	set(CMAKE_C_EXTENSIONS ON)
 	add_compile_definitions(_GNU_SOURCE)
+	set(CMAKE_DL_LIBS "")	# no dynamic libraries on the 3DS
 	# devkitARM makes int32_t a long; the engine (overloads, serializers, VM) assumes it is an int,
 	# like every other platform. Same size and calling convention, and the system libraries
 	# (libctru, citro3d, SDL) are C, so nothing that links against them changes.

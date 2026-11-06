@@ -97,7 +97,12 @@ public:
 
 	unsigned int mMapStart;
 
+#ifdef __3DS__
+	// 8 MB of the 3DS's linear memory (the desktop size, 64 MB, is more than it has).
+	static const unsigned int BUFFER_SIZE = 262144;
+#else
 	static const unsigned int BUFFER_SIZE = 2000000;
+#endif
 	static const unsigned int BUFFER_SIZE_TO_USE = BUFFER_SIZE-500;
 
 public:

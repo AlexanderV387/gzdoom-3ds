@@ -23,7 +23,11 @@ static const int BONE_SIZE = (16*sizeof(float));
 
 BoneBuffer::BoneBuffer(int pipelineNbr) : mPipelineNbr(pipelineNbr)
 {
+#ifdef __3DS__
+	int maxNumberOfBones = 2000;	// no skeletal models on the 3DS yet
+#else
 	int maxNumberOfBones = 80000;
+#endif
 
 	mBufferSize = maxNumberOfBones;
 	mByteSize = mBufferSize * BONE_SIZE;
