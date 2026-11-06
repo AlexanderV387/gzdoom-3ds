@@ -459,6 +459,7 @@ elseif( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
 		common/platform/3ds/hardware_3ds.cpp
 		common/platform/3ds/st_start_3ds.cpp
 		common/platform/3ds/widgets_3ds.cpp
+		common/platform/3ds/memory_3ds.cpp
 		posix/i_steam.cpp
 		common/platform/posix/sdl/i_gui.cpp
 		common/platform/posix/sdl/i_input.cpp
@@ -1331,6 +1332,8 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
 	target_include_directories( zdoom PRIVATE "${N3DS_SHADER_DIR}" common/rendering/c3d common/platform/3ds )
 	target_link_libraries( zdoom citro3d )
 	target_link_options( zdoom PRIVATE "-Wl,-Map,${CMAKE_BINARY_DIR}/uzdoom.map" )
+	# Failed allocations are logged with their size (memory_3ds.cpp).
+	target_link_options( zdoom PRIVATE "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=memalign" )
 endif()
 
 target_include_directories( zdoom PRIVATE ${CMAKE_BINARY_DIR} )

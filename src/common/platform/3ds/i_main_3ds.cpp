@@ -58,7 +58,7 @@ void N3DS_FatalError(const char *message)
 	if (LogFile)
 	{
 		fprintf(LogFile, "\nFATAL: %s\n", message);
-		fflush(LogFile);
+		N3DS_LogMemory("fatal");
 	}
 	if (FILE *f = fopen(N3DS_DATA_DIR "/fatal.log", "w"))
 	{
@@ -162,6 +162,7 @@ int main(int argc, char **argv)
 	if (LogFile) setvbuf(LogFile, nullptr, _IOLBF, 4096);	// line by line: a crash keeps the log
 	fprintf(LogFile, "%s %s for Nintendo 3DS (%s)\n", GAMENAME, GetVersionString(), __DATE__);
 
+	N3DS_LogMemory("start");
 	gfxInitDefault();
 
 	setlocale(LC_ALL, "C");
