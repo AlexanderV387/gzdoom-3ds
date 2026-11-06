@@ -5020,7 +5020,7 @@ int Player::compute_data(float *buffer, int32_t count)
 
 	while (count > 0)
 	{
-		int process = std::min(count, AUDIO_BUFFER_SIZE);
+		int process = std::min<int>(count, AUDIO_BUFFER_SIZE);
 		do_compute_data(process);
 		count -= process;
 

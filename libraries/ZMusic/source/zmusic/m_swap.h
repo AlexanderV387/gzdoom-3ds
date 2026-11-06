@@ -209,10 +209,18 @@ inline int BigLong (int x)
 #endif // __BIG_ENDIAN__
 
 // These may be destructive so they should create errors
+#if defined(__3DS__)
+// On the 3DS, long and int are both 32 bits and int32_t is long: these are lossless.
+inline unsigned long BigLong(unsigned long x) { return static_cast<unsigned long>(BigLong(static_cast<unsigned int>(x))); }
+inline long BigLong(long x) { return static_cast<long>(BigLong(static_cast<int>(x))); }
+inline unsigned long LittleLong(unsigned long x) { return static_cast<unsigned long>(LittleLong(static_cast<unsigned int>(x))); }
+inline long LittleLong(long x) { return static_cast<long>(LittleLong(static_cast<int>(x))); }
+#else
 unsigned long BigLong(unsigned long) = delete;
 long BigLong(long) = delete;
 unsigned long LittleLong(unsigned long) = delete;
 long LittleLong(long) = delete;
+#endif
 
 
 // Data accessors, since some data is highly likely to be unaligned.

@@ -47,6 +47,17 @@
 
 FluidConfig fluidConfig;
 
+#ifdef ZMUSIC_NO_FLUIDSYNTH
+// Built without FluidSynth (Nintendo 3DS: no glib). Opening it fails, so the
+// MIDI player falls back to the next device (Timidity, WildMidi, OPL...).
+#include <stdexcept>
+void Fluid_SetupConfig(const char*, std::vector<std::string> &, bool) {}
+MIDIDevice *CreateFluidSynthMIDIDevice(int, const char *)
+{
+	throw std::runtime_error("FluidSynth is not available in this build");
+}
+#else
+
 #include "../thirdparty/fluidsynth/include/fluidsynth.h"
 
 class FluidSynthMIDIDevice : public SoftSynthMIDIDevice
@@ -520,3 +531,5 @@ MIDIDevice *CreateFluidSynthMIDIDevice(int samplerate, const char *Args)
 	Fluid_SetupConfig(Args, fluid_patchset, true);
 	return new FluidSynthMIDIDevice(samplerate, fluid_patchset);
 }
+
+#endif // ZMUSIC_NO_FLUIDSYNTH

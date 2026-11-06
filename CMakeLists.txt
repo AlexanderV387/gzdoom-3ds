@@ -9,6 +9,18 @@ project(UZDoom)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
+	# newlib hides strdup, strcasecmp... without the GNU extensions.
+	set(CMAKE_CXX_EXTENSIONS ON)
+	set(CMAKE_C_EXTENSIONS ON)
+	add_compile_definitions(_GNU_SOURCE)
+	# devkitARM makes int32_t a long; the engine (overloads, serializers, VM) assumes it is an int,
+	# like every other platform. Same size and calling convention, and the system libraries
+	# (libctru, citro3d, SDL) are C, so nothing that links against them changes.
+	# (Options, not definitions: each -U has to come before its -D.)
+	add_compile_options(-U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__ "-D__UINT32_TYPE__=unsigned int"
+		-U__INT_LEAST32_TYPE__ -D__INT_LEAST32_TYPE__=int -U__UINT_LEAST32_TYPE__ "-D__UINT_LEAST32_TYPE__=unsigned int")
+endif()
 
 macro(FLAGS CONFIG CL_FLAGS CC_FLAGS)
 	if(MSVC)
@@ -434,10 +446,14 @@ endif()
 if( MSVC )
 	set(ABSL_MSVC_STATIC_RUNTIME ON)
 endif()
-add_subdirectory( libraries/abseil )
+if( NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" ) # the 3DS uses the standard library instead
+	add_subdirectory( libraries/abseil )
+endif()
 
 set(ZWIDGET_BUILD_EXAMPLE OFF CACHE INTERNAL "" FORCE)
-add_subdirectory( libraries/ZWidget )
+if( NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" ) # no desktop windows on the 3DS
+	add_subdirectory( libraries/ZWidget )
+endif()
 
 if( HAVE_VM_JIT AND UNIX )
 	check_symbol_exists( "backtrace" "execinfo.h" HAVE_BACKTRACE )

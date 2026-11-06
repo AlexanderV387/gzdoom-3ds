@@ -33,7 +33,12 @@
 #include "name.h"
 #include "m_crc32.h"
 
+#ifdef __3DS__
+#include <algorithm>
+#include <cctype>
+#else
 #include "absl/strings/ascii.h"
+#endif
 
 // CODE --------------------------------------------------------------------
 
@@ -134,7 +139,12 @@ int FName::NameManager::FindName (const char *text, size_t textLen, bool noCreat
 
 int FName::NameManager::FindName (const std::string_view str, bool noCreate)
 {
+#ifdef __3DS__
+	std::string lowered(str);
+	std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+#else
 	auto lowered = absl::AsciiStrToLower(str);
+#endif
 	auto nameIndex = StringToName.find(lowered);
 	if (nameIndex != StringToName.end()) {
 		return nameIndex->second;

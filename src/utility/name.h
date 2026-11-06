@@ -27,7 +27,11 @@
 #include "tarray.h"
 #include "zstring.h"
 
+#ifdef __3DS__
+#include <unordered_map>
+#else
 #include "absl/container/flat_hash_map.h"
+#endif
 
 enum ENamedName
 {
@@ -98,7 +102,11 @@ protected:
 
 	struct NameManager
 	{
+#ifdef __3DS__
+		std::unordered_map<std::string, int> StringToName;
+#else
 		absl::flat_hash_map<std::string, int> StringToName;
+#endif
 		std::vector<std::string> NameToString;
 		int NumNames = 0;
 

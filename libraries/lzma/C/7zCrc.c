@@ -71,7 +71,7 @@ UInt32 Z7_FASTCALL CrcUpdateT1(UInt32 v, const void *data, size_t size, const UI
 
 #ifdef MY_CPU_LE
 
-#if defined(MY_CPU_ARM_OR_ARM64)
+#if defined(MY_CPU_ARM_OR_ARM64) && !defined(__3DS__) /* the 3DS's ARM11 has no CRC32 instructions */
 
 // #pragma message("ARM*")
 

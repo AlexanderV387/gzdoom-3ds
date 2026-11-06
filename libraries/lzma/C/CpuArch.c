@@ -693,6 +693,16 @@ BoolInt CPU_IsSupported_PageGB(void)
 }
 
 
+#elif defined(MY_CPU_ARM_OR_ARM64) && defined(__3DS__)
+
+/* The 3DS's ARM11 (ARMv6K): none of these extensions. */
+BoolInt CPU_IsSupported_CRC32(void)  { return 0; }
+BoolInt CPU_IsSupported_CRYPTO(void) { return 0; }
+BoolInt CPU_IsSupported_NEON(void)   { return 0; }
+BoolInt CPU_IsSupported_SHA1(void)   { return 0; }
+BoolInt CPU_IsSupported_SHA2(void)   { return 0; }
+BoolInt CPU_IsSupported_AES (void)   { return 0; }
+
 #elif defined(MY_CPU_ARM_OR_ARM64)
 
 #ifdef _WIN32

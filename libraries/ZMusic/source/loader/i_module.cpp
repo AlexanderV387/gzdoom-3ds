@@ -33,7 +33,13 @@
 
 #include "i_module.h"
 
-#ifdef _WIN32
+#if defined(__3DS__)
+// No dynamic libraries on the 3DS: every optional library is simply missing.
+using HMODULE = void*;
+#define LoadLibraryA(x) nullptr
+#define GetProcAddress(a,b) nullptr
+#define FreeLibrary(x) ((void)0)
+#elif defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
@@ -41,7 +47,7 @@
 #endif
 
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__3DS__)
 #define LoadLibraryA(x) dlopen((x), RTLD_LAZY)
 #define GetProcAddress(a,b) dlsym((a),(b))
 #define FreeLibrary(x) dlclose((x))

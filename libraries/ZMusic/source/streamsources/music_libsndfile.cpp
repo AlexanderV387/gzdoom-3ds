@@ -96,7 +96,7 @@ protected:
 //
 //==========================================================================
 
-bool S_ParseTimeTag(const char* tag, zmusic_bool* as_samples, unsigned int* time)
+bool S_ParseTimeTag(const char* tag, zmusic_bool* as_samples, uint32_t* time)
 {
 	const int time_count = 3;
 	const char* bit = tag;
