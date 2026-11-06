@@ -549,6 +549,10 @@ int FIWadManager::IdentifyVersion (TArray<FString> &wadfiles, const char *iwad, 
 			FixPathSeperator(custwad);
 			DefaultExtension(custwad, ext);
 			bool isAbsolute = (custwad[0] == '/');
+#ifdef __3DS__
+			// The 3DS's paths start with their device: sdmc:/... or romfs:/...
+			isAbsolute |= (strncmp(custwad, "sdmc:/", 6) == 0 || strncmp(custwad, "romfs:/", 7) == 0);
+#endif
 #ifdef _WIN32
 			isAbsolute |= (custwad.Len() >= 2 && custwad[1] == ':');
 #endif
