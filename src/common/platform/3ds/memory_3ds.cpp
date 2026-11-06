@@ -57,10 +57,27 @@ extern "C"
 		N3DS_LogFlush();
 	}
 
+	// Large blocks (1 MB or more) are logged too, with their caller: where the memory goes.
+	static void LogLarge(const char *what, size_t size)
+	{
+		static bool inside = false;
+		if (inside) return;
+		inside = true;
+		Trace t = {};
+		_Unwind_Backtrace(TraceStep, &t);
+		char line[16 * 11 + 64];
+		int n = snprintf(line, sizeof(line), "%s(%u KB):", what, (unsigned)(size / 1024));
+		for (int i = 2; i < t.count && n < (int)sizeof(line) - 12; i++) n += snprintf(line + n, sizeof(line) - n, " %08x", (unsigned)t.pcs[i]);
+		snprintf(line + n, sizeof(line) - n, "\n");
+		N3DS_Log(line);
+		inside = false;
+	}
+
 	void *__wrap_malloc(size_t size)
 	{
 		void *p = __real_malloc(size);
 		if (p == nullptr && size) LogFailure("malloc", size);
+		else if (size >= 1024 * 1024) LogLarge("malloc", size);
 		return p;
 	}
 
@@ -75,6 +92,7 @@ extern "C"
 	{
 		void *p = __real_realloc(ptr, size);
 		if (p == nullptr && size) LogFailure("realloc", size);
+		else if (size >= 1024 * 1024) LogLarge("realloc", size);
 		return p;
 	}
 

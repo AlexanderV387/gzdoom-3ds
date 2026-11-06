@@ -170,6 +170,11 @@ CVAR(Int, font_supersamplescale, 2, CVAR_ARCHIVE);
 FFont *FontFromTTF(const FileSys::FolderEntry &f)
 {
 	FString fileName = f.name;
+#ifdef __3DS__
+	// The Chinese, Japanese and Korean fonts (2-8 MB each) build atlases of tens of megabytes:
+	// more than the 3DS has. The Latin ones (under 1 MB) are kept.
+	if (fileSystem.FileLength(f.lumpnum) > 1024 * 1024) return nullptr;
+#endif
 	if (fileName.IndexOf(".ttf") > 0)
 	{
 		FileSys::FileData data      = fileSystem.ReadFileFullName(f.name);
