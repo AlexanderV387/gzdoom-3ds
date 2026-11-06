@@ -142,7 +142,7 @@ class DInterBackground : public DObject
 		int         max_duration;
 	};
 
-	enum ECondition
+	enum ECondition : int	// read through an int& below
 	{
 		COND_NONE = 0, // None.
 		COND_GREATER = 1, // Parameter is greater than current map number.
