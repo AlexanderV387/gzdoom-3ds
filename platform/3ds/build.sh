@@ -472,6 +472,10 @@ bundle_update_changelog() {
 mkdir -p "${PACKAGE_TMP}/update-romfs"
 cmake -E copy_directory "${ROOT}/platform/3ds/romfs" "${PACKAGE_TMP}/update-romfs"
 bundle_update_changelog "${PACKAGE_TMP}/update-romfs"
+# GZDoom 3DS: the engine data inside the 3DSX too, so the 3DSX is the only file to copy.
+mkdir -p "${PACKAGE_TMP}/update-romfs/data"
+cmake -E copy "${GAME_BUILD}/gzdoom.pk3" "${PACKAGE_TMP}/update-romfs/data/gzdoom.pk3"
+cmake -E copy "${GAME_BUILD}/game_support.pk3" "${PACKAGE_TMP}/update-romfs/data/game_support.pk3"
 "${THREEDSXTOOL}" "${GAME_BUILD}/gzdoom.elf" "${THREEDSX}" --smdh="${SMDH}" --romfs="${PACKAGE_TMP}/update-romfs"
 
 MOD_PK3="${BUILD_ROOT}/LegendOfDoom.pk3"

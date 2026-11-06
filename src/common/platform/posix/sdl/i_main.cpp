@@ -256,7 +256,10 @@ int main (int argc, char **argv)
 	Args = new FArgs(argc, argv);
 
 #ifdef __3DS__
-	const bool homebrewLaunch = envIsHomebrew();
+	// The engine data comes from the RomFS (the CIA's, or the one inside the 3DSX), else from
+	// the SD card's data folder (an older 3DSX).
+	struct stat romfsData = {};
+	const bool homebrewLaunch = stat("romfs:/data/gzdoom.pk3", &romfsData) != 0;
 	static const char *const SdDataDirectory = LOD3DS_APP_DIR "/data/";
 	static const char *const RomFsDataDirectory = "romfs:/data/";
 	static const char *const SdBase = LOD3DS_APP_DIR "/data/gzdoom.pk3";
