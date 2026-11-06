@@ -1,18 +1,18 @@
 [
   {
     "file": "mbedtls.tar.gz",
-    "url": "https://codeload.github.com/Mbed-TLS/mbedtls/tar.gz/refs/tags/v2.28.8",
-    "sha256": "4fef7de0d8d542510d726d643350acb3cdb9dc76ad45611b59c9aa08372b4213"
+    "url": "git:https://github.com/Mbed-TLS/mbedtls@v2.28.8",
+    "sha256": "5470362a274d1960bf79a7e46dc6a691b4542a481dae4b1f858f380c11a501d1"
   },
   {
     "file": "curl.tar.xz",
-    "url": "https://curl.se/download/curl-8.4.0.tar.xz",
+    "url": "https://github.com/curl/curl/releases/download/curl-8_4_0/curl-8.4.0.tar.xz",
     "sha256": "16c62a9c4af0f703d28bda6d7bbf37ba47055ad3414d70dec63e2e6336f2a82d"
   },
   {
     "file": "jansson.tar.gz",
-    "url": "https://codeload.github.com/akheron/jansson/tar.gz/refs/tags/v2.14",
-    "sha256": "c739578bf6b764aa0752db9a2fdadcfe921c78f1228c7ec0bb47fa804c55d17b"
+    "url": "git:https://github.com/akheron/jansson@v2.14",
+    "sha256": "9e38640c10fddbe7e80660262fc0a0d081b8d813f5bde0ccfa2ea0b69d31d647"
   },
   {
     "file": "mbedtls.patch",
