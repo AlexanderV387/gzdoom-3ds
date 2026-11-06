@@ -14,5 +14,6 @@
 
 void N3DS_Log(const char *text);			// appends to N3DS_DATA_DIR/log.txt
 void N3DS_LogFlush();
-void N3DS_LogMemory(const char *stage);	// heap and linear memory, into the log
+void N3DS_LogMemory(const char *stage);
+unsigned N3DS_HeapInUseKB();	// heap and linear memory, into the log
 [[noreturn]] void N3DS_FatalError(const char *message);

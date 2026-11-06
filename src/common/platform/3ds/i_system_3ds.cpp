@@ -89,7 +89,16 @@ void I_PrintStr(const char *cp)
 		else if (*srcp == 0x1d || *srcp == 0x1e || *srcp == 0x1f) srcp++;
 		else printData += *srcp++;
 	}
+	// Each new line starts with the heap in use (KB): where the memory goes while loading.
+	static bool lineStart = true;
+	if (lineStart && printData.Len() > 0)
+	{
+		char prefix[16];
+		snprintf(prefix, sizeof(prefix), "[%6u] ", N3DS_HeapInUseKB());
+		N3DS_Log(prefix);
+	}
 	N3DS_Log(printData.GetChars());
+	if (printData.Len() > 0) lineStart = printData.Back() == '\n';
 }
 
 bool HoldingQueryKey(const char *key)

@@ -10,7 +10,10 @@
 #include <3ds.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdint.h>
 #include <stddef.h>
+#include <unwind.h>
 
 #include "platform_3ds.h"
 
@@ -23,13 +26,34 @@ extern "C"
 	void *__real_realloc(void *ptr, size_t size);
 	void *__real_memalign(size_t alignment, size_t size);
 
+	// The return addresses on the stack of a failed allocation (resolved later with the map file).
+	struct Trace { uintptr_t pcs[16]; int count; };
+	static _Unwind_Reason_Code TraceStep(struct _Unwind_Context *ctx, void *arg)
+	{
+		Trace *t = (Trace *)arg;
+		if (t->count >= 16) return _URC_END_OF_STACK;
+		t->pcs[t->count++] = _Unwind_GetIP(ctx);
+		return _URC_NO_REASON;
+	}
+
 	static void LogFailure(const char *what, size_t size)
 	{
+		Trace t = {};
+		_Unwind_Backtrace(TraceStep, &t);
+		char trace[16 * 11 + 16] = "  trace:";
+		for (int i = 0; i < t.count; i++)
+		{
+			char pc[12];
+			snprintf(pc, sizeof(pc), " %08x", (unsigned)t.pcs[i]);
+			strcat(trace, pc);
+		}
+		strcat(trace, "\n");
 		char line[160];
 		struct mallinfo mi = mallinfo();
 		snprintf(line, sizeof(line), "%s(%u) FAILED: heap %u KB, in use %u KB, free in heap %u KB\n",
 			what, (unsigned)size, (unsigned)(__ctru_heap_size / 1024), (unsigned)(mi.uordblks / 1024), (unsigned)(mi.fordblks / 1024));
 		N3DS_Log(line);
+		N3DS_Log(trace);
 		N3DS_LogFlush();
 	}
 
@@ -71,4 +95,11 @@ void N3DS_LogMemory(const char *stage)
 		(unsigned)(mi.uordblks / 1024), (unsigned)(__ctru_linear_heap_size / 1024), (unsigned)(linearSpaceFree() / 1024));
 	N3DS_Log(line);
 	N3DS_LogFlush();
+}
+
+// Heap in use, in KB, for the log's line prefixes.
+unsigned N3DS_HeapInUseKB()
+{
+	struct mallinfo mi = mallinfo();
+	return (unsigned)(mi.uordblks / 1024);
 }
