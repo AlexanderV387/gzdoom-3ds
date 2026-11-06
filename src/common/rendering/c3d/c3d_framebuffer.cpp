@@ -42,6 +42,29 @@ C3DFrameBuffer *Get()
 	return TheFrameBuffer;
 }
 
+static TArray<void *> PendingLinear;
+static TArray<C3D_Tex> PendingTextures;
+
+void DeferLinearFree(void *ptr)
+{
+	if (TheFrameBuffer == nullptr) linearFree(ptr);
+	else PendingLinear.Push(ptr);
+}
+
+void DeferTexDelete(const C3D_Tex &tex)
+{
+	if (TheFrameBuffer == nullptr) { C3D_Tex t = tex; C3D_TexDelete(&t); }
+	else PendingTextures.Push(tex);
+}
+
+void RunDeferredFrees()
+{
+	for (void *p : PendingLinear) linearFree(p);
+	PendingLinear.Clear();
+	for (auto &t : PendingTextures) C3D_TexDelete(&t);
+	PendingTextures.Clear();
+}
+
 // The top screen: 400x240, stored turned 90 degrees as 240x400.
 #define DISPLAY_TRANSFER_FLAGS \
 	(GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
@@ -99,7 +122,9 @@ void C3DFrameBuffer::InitializeState()
 void C3DFrameBuffer::ScreenBegin()
 {
 	if (mFrameStarted) return;
-	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);	// waits for the previous frame's drawing
+	RunDeferredFrees();
+	C3D_RenderTargetClear(mTop, C3D_CLEAR_ALL, 0x000000ff, 0);
 	C3D_FrameDrawOn(mTop);
 	mFrameStarted = true;
 }
@@ -121,6 +146,8 @@ void C3DFrameBuffer::Draw2D()
 void C3DFrameBuffer::Update()
 {
 	ScreenBegin();
+	Draw2D();		// everything 2D still pending (menus, HUD, console, title)
+	twod->Clear();
 	C3D_FrameEnd(0);
 	mFrameStarted = false;
 	TheRenderState->ResetDeviceState();

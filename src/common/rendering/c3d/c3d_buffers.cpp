@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include "c3d_backend.h"
+#include "c3d_internal.h"
 #include "shaderuniforms.h"
 #include "engineerrors.h"
 
@@ -20,7 +21,7 @@ C3DBuffer::~C3DBuffer()
 {
 	if (map)
 	{
-		if (linear) linearFree(map);
+		if (linear) DeferLinearFree(map);
 		else free(map);
 	}
 	map = nullptr;
@@ -41,7 +42,7 @@ void C3DBuffer::Allocate(size_t size)
 	if (map)
 	{
 		memcpy(mem, map, std::min(buffersize, size));
-		if (linear) linearFree(map);
+		if (linear) DeferLinearFree(map);
 		else free(map);
 	}
 	map = mem;

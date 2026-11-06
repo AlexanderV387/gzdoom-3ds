@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "c3d_backend.h"
+#include "c3d_internal.h"
 #include "textures.h"
 #include "hw_material.h"
 #include "printf.h"
@@ -39,7 +40,7 @@ C3DHardwareTexture::~C3DHardwareTexture()
 	if (mCreated)
 	{
 		AllocatedBytes -= mTex.size;
-		C3D_TexDelete(&mTex);
+		DeferTexDelete(mTex);
 	}
 }
 
@@ -68,7 +69,7 @@ unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int
 	if (mCreated && (mTex.width != pw || mTex.height != ph))
 	{
 		AllocatedBytes -= mTex.size;
-		C3D_TexDelete(&mTex);
+		DeferTexDelete(mTex);
 		mCreated = false;
 	}
 	if (!mCreated)
