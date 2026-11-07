@@ -594,12 +594,12 @@ void S_ClearSoundData()
 	ModPlayers.Clear();
 
 #ifdef __3DS__
-	N3DS_Log("TEST11: S_ClearSoundData before Joy_ResetRumbleMapping");
+	N3DS_Log("TEST12: S_ClearSoundData before Joy_ResetRumbleMapping");
 	N3DS_LogFlush();
 #endif
 	Joy_ResetRumbleMapping();
 #ifdef __3DS__
-	N3DS_Log("TEST11: S_ClearSoundData after Joy_ResetRumbleMapping");
+	N3DS_Log("TEST12: S_ClearSoundData after Joy_ResetRumbleMapping");
 	N3DS_LogFlush();
 #endif
 }

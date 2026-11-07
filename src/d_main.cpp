@@ -3760,13 +3760,13 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (!batchrun) Printf ("S_InitData: Load sound definitions.\n");
 
 #ifdef __3DS__
-	N3DS_Log("*** TEST11: before S_InitData ***");
+	N3DS_Log("*** TEST12: before S_InitData ***");
 	N3DS_LogFlush();
 #endif
 	S_InitData ();
 
 #ifdef __3DS__
-	N3DS_Log("*** TEST11: after S_InitData ***");
+	N3DS_Log("*** TEST12: after S_InitData ***");
 	N3DS_LogFlush();
 	N3DS_LogHeapDiagnostic("after_S_InitData");
 #endif
