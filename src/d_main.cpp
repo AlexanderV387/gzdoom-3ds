@@ -92,6 +92,10 @@
 #include "p_setup.h"
 #include "po_man.h"
 #include "printf.h"
+#ifdef __3DS__
+#include "platform_3ds.h"
+#endif // __3DS__
+
 #include "r_data/r_vanillatrans.h"
 #include "r_sky.h"
 #include "r_utility.h"
@@ -3754,7 +3758,18 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	// [RH] Parse any SNDINFO lumps
 	if (!batchrun) Printf ("S_InitData: Load sound definitions.\n");
+
+#ifdef __3DS__
+	N3DS_Log("*** TEST11: before S_InitData ***");
+	N3DS_LogFlush();
+#endif
 	S_InitData ();
+
+#ifdef __3DS__
+	N3DS_Log("*** TEST11: after S_InitData ***");
+	N3DS_LogFlush();
+	N3DS_LogHeapDiagnostic("after_S_InitData");
+#endif
 
 	// [RH] Parse through all loaded mapinfo lumps
 	if (!batchrun) Printf ("G_ParseMapInfo: Load map definitions.\n");
@@ -3770,6 +3785,9 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	S_ParseMusInfo();
 
 	if (!batchrun) Printf ("Texman.Init: Init texture manager.\n");
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("before_TexMan");
+#endif
 	UpdateUpscaleMask();
 	SpriteFrames.Clear();
 	TexMan.AddTextures([]()
@@ -3777,6 +3795,10 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 		StartWindow->Progress();
 		if (StartScreen) StartScreen->Progress(1);
 	}, CheckForHacks, InitBuildTiles);
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("after_TexMan");
+	N3DS_TrimHeap();
+#endif
 	PatchTextures();
 	TexAnim.Init();
 	G_AddBoomHelpScreens();
@@ -3790,6 +3812,11 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	InitDoomFonts();
 	V_LoadTranslations();
 	UpdateGenericUI(false);
+
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("after_fonts");
+	N3DS_TrimHeap();
+#endif
 
 	// [CW] Parse any TEAMINFO lumps.
 	if (!batchrun) Printf ("ParseTeamInfo: Load team definitions.\n");
@@ -3823,6 +3850,11 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (StartScreen) StartScreen->Progress(1);
 	StartWindow->Progress();
 	R_Init ();
+
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("after_R_Init");
+	N3DS_TrimHeap();
+#endif
 
 	if (!batchrun) Printf ("DecalLibrary: Load decals.\n");
 	DecalLibrary.ReadAllDecals ();
@@ -3951,6 +3983,11 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (!(restart || norun))
 		V_Init2();
 
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("after_V_Init2");
+	N3DS_TrimHeap();
+#endif
+
 	if (!(batchrun || norun)) Printf ("V_Init: allocate screen.\n");
 	if (!(restart || norun))
 	{
@@ -3964,6 +4001,10 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	StartScreen = nostartscreen? nullptr : GetGameStartScreen(per_shader_progress > 0 ? max_progress * 10 / 9 : max_progress + 3);
 	setmodeneeded = true;
+
+#ifdef __3DS__
+	N3DS_LogHeapDiagnostic("before_StartScreen_Render");
+#endif
 	if (StartScreen != nullptr) StartScreen->Render();
 
 	if (norun || batchrun)

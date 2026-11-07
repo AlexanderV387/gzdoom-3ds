@@ -38,6 +38,10 @@
 #include "serializer.h"
 #include "vm.h"
 
+#ifdef __3DS__
+#include "platform_3ds.h"
+#endif
+
 using namespace FileSys;
 
 // MACROS ------------------------------------------------------------------
@@ -589,7 +593,15 @@ void S_ClearSoundData()
 	HexenMusic.Clear();
 	ModPlayers.Clear();
 
+#ifdef __3DS__
+	N3DS_Log("TEST11: S_ClearSoundData before Joy_ResetRumbleMapping");
+	N3DS_LogFlush();
+#endif
 	Joy_ResetRumbleMapping();
+#ifdef __3DS__
+	N3DS_Log("TEST11: S_ClearSoundData after Joy_ResetRumbleMapping");
+	N3DS_LogFlush();
+#endif
 }
 
 //==========================================================================
