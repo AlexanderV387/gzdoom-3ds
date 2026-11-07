@@ -710,12 +710,6 @@ void I_Rumble(double high_freq, double low_freq, double left_trig, double right_
 	if (!use_joystick) return;
 
 #ifdef __3DS__
-	{ extern void N3DS_Log(const char*); extern void N3DS_LogFlush();
-	  char buf[128];
-	  int len = snprintf(buf, sizeof(buf), "TEST12: I_Rumble enter JoystickManager=%p", (void*)JoystickManager);
-	  if (len > 0 && (size_t)len < sizeof(buf)) N3DS_Log(buf);
-	  N3DS_LogFlush(); }
-
 	// On 3DS no SDL joystick is initialized; JoystickManager can be NULL.
 	if (!JoystickManager) return;
 #endif

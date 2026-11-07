@@ -2,7 +2,7 @@
 
 Branch `uzdoom-3ds` of [AlexanderV387/gzdoom-3ds](https://github.com/AlexanderV387/gzdoom-3ds), part of [n3ds-ports](https://github.com/AlexanderV387/n3ds-ports). UZDoom (the GZDoom successor, `trunk` of November 2026, preparing 4.15) with its whole hardware renderer drawn by the PICA200 through citro3d: a new video backend, not a software renderer.
 
-**Status (2026-11-06): the engine starts on a New 3DS and reaches "Init complete"** (IWAD, ZScript, menus, playsim, backend). The first frame of the title screen had not been seen yet: test 8 (`uzdoom-prueba08.3dsx`), which fixes the 2D list never being drawn or cleared, was not reported.
+**Status (2026-11-07): past sound init and I_Rumble null-guard; malloc(4915200) fails at start screen render.** Test 13 (`uzdoom-prueba13.3dsx`) reduces the generic start-screen bitmap from 1280×960 to 640×480 on 3DS (saves ~3.7 MB peak), keeping PC at 1280×960. Confirmed in code; awaiting hardware test.
 
 ## Building
 
@@ -29,6 +29,15 @@ Copy `uzdoom.3dsx` anywhere on the SD card and the game to `sdmc:/3ds/gzdoom/` (
 | `libraries/ZMusic` | optional FluidSynth (needs glib), no `dlopen`, 32-bit `long` byte-swap fixes |
 | `libraries/lzma` | no ARMv8 CRC or CPU probing |
 | Engine | `sdmc:/` and `romfs:/` are absolute paths; smaller vertex (8 MB), light and bone buffers; hex fonts keep Latin/Greek/Cyrillic/symbols (all of Unifont took ~45 MB); no CJK TrueType fonts (atlases of tens of MB); enums read as ints by ZScript or the serializer get `: int` (ARM EABI makes them 1 byte); the 64-bit-only assert skipped; VP8 movies only with libvpx |
+
+## Packaging and validation checklist
+
+Before shipping a `.3dsx` artifact:
+
+1. **RomFS contents:** `uzdoom.pk3` and `game_support.pk3` must be present in the build tree before invoking `3dsxtool`.
+2. **Build command:** `3dsxtool --romfs=<romfsdir> -o <output>.3dsx <elf>` (the `--romfs` flag is mandatory).
+3. **Versioned ELF:** keep a dated copy of the ELF alongside the 3DSX (e.g., `uzdoom-prueba13.elf`). Use it with `arm-none-eabi-addr2line -f -C -e <elf> <address>` to resolve crash traces from `log.txt`.
+4. **String markers:** run `arm-none-eabi-nm --defined-only <elf> | grep -i test` or `strings <3dsx> | grep TEST` to confirm diagnostic markers (TEST13) are present in the artifact.
 
 ## Known open items
 

@@ -16,4 +16,10 @@ void N3DS_Log(const char *text);			// appends to N3DS_DATA_DIR/log.txt
 void N3DS_LogFlush();
 void N3DS_LogMemory(const char *stage);
 unsigned N3DS_HeapInUseKB();	// heap and linear memory, into the log
+
+// Diagnostic: log heap state (in use, free, chunk count, trimmable) at a phase boundary.
+void N3DS_LogHeapDiagnostic(const char *phase);
+// Try to return unused memory at the heap's end via malloc_trim; logs before/after.
+bool N3DS_TrimHeap();
+
 [[noreturn]] void N3DS_FatalError(const char *message);

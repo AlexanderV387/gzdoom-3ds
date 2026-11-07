@@ -39,7 +39,9 @@
 #include "m_png.h"
 #include "basics.h"
 #include "printf.h"
-
+#ifdef __3DS__
+#include <climits>
+#endif // __3DS__
 
 // MACROS ------------------------------------------------------------------
 

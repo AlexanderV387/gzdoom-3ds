@@ -64,8 +64,14 @@ FGenericStartScreen::FGenericStartScreen(int max_progress)
 	// at this point we do not have a working texture manager yet, so we have to do the lookup via the file system
 	int startup_lump = fileSystem.CheckNumForName("BOOTLOGO", FileSys::ns_graphics);
 
+#ifdef __3DS__
+	// 3DS heap is limited; use 640x480 instead of 1280x960 to avoid ~5 MB bitmap allocation.
+	StartupBitmap.Create(640, 480);
+	ClearBlock(StartupBitmap, { 0, 0, 0, 255 }, 0, 0, 640, 480);
+#else
 	StartupBitmap.Create(640 * 2, 480 * 2);
 	ClearBlock(StartupBitmap, { 0, 0, 0, 255 }, 0, 0, 640 * 2, 480 * 2);
+#endif
 	// This also needs to work if the lump turns out to be unusable.
 	if (startup_lump != -1)
 	{
@@ -73,10 +79,17 @@ FGenericStartScreen::FGenericStartScreen(int max_progress)
 		if (iBackground)
 		{
 			Background = iBackground->GetCachedBitmap(nullptr, FImageSource::normal);
+#ifdef __3DS__
+			if (Background.GetWidth() < 640 || Background.GetHeight() < 480)
+				StartupBitmap.Blit(320 - Background.GetWidth()/2, 240 - Background.GetHeight() / 2, Background);
+			else
+				StartupBitmap.Blit(0, 0, Background, 640, 480);
+#else
 			if (Background.GetWidth() < 640 * 2 || Background.GetHeight() < 480 * 2)
 				StartupBitmap.Blit(320 * 2 - Background.GetWidth()/2, 220 * 2 - Background.GetHeight() / 2, Background);
 			else
 				StartupBitmap.Blit(0, 0, Background, 640 * 2, 480 * 2);
+#endif
 
 		}
 	}
@@ -105,11 +118,19 @@ bool FGenericStartScreen::DoProgress(int advance)
 
 	if (CurPos < MaxPos)
 	{
+#ifdef __3DS__
+		int numnotches = 200;
+#else
 		int numnotches = 200 * 2;
+#endif
 		int notch_pos = ((CurPos + 1) * numnotches) / MaxPos;
 		if (notch_pos != NotchPos)
 		{ // Time to draw another notch.
+#ifdef __3DS__
+			ClearBlock(StartupBitmap, bcolor, 320 - 100, 480 - 30, notch_pos, 4);
+#else
 			ClearBlock(StartupBitmap, bcolor, (320 - 100) * 2, 480 * 2 - 30, notch_pos, 4 * 2);
+#endif
 			NotchPos = notch_pos;
 			if (StartupTexture)
 				StartupTexture->CleanHardwareData(true);

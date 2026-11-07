@@ -373,7 +373,7 @@ void Joy_ResetRumbleMapping()
 	if (haptics_debug) DPrintf(DMSG_NOTIFY, "rumble reset\n");
 
 #ifdef __3DS__
-	N3DS_Log("TEST12: Joy_ResetRumbleMapping before I_Rumble");
+	N3DS_Log("TEST13: Joy_ResetRumbleMapping before I_Rumble");
 	N3DS_LogFlush();
 #endif
 	RumbleMapping.Clear();
@@ -387,7 +387,7 @@ void Joy_ResetRumbleMapping()
 	I_Rumble(0, 0, 0, 0);
 
 #ifdef __3DS__
-	N3DS_Log("TEST12: Joy_ResetRumbleMapping after I_Rumble");
+	N3DS_Log("TEST13: Joy_ResetRumbleMapping after I_Rumble");
 	N3DS_LogFlush();
 #endif
 }

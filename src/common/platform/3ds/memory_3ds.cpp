@@ -121,3 +121,40 @@ unsigned N3DS_HeapInUseKB()
 	struct mallinfo mi = mallinfo();
 	return (unsigned)(mi.uordblks / 1024);
 }
+
+// Diagnostic: log heap state at phase boundaries to check for fragmentation.
+// newlib mallinfo fields: arena (total from system), ordblks (free chunks count),
+// uordblks (allocated), fordblks (free total), keepcost (top-most releasable via malloc_trim).
+// There is no mxordblk in newlib; keepcost indicates trimmable memory at the heap's end.
+void N3DS_LogHeapDiagnostic(const char *phase)
+{
+	struct mallinfo mi = mallinfo();
+	char line[240];
+	snprintf(line, sizeof(line), "[diag] %s: heap %u KB, in use %u KB, free %u KB (%u chunks), trimmable %u KB\n",
+		phase,
+		(unsigned)(__ctru_heap_size / 1024),
+		(unsigned)(mi.uordblks / 1024),
+		(unsigned)(mi.fordblks / 1024),
+		(unsigned)mi.ordblks,
+		(unsigned)(mi.keepcost / 1024));
+	N3DS_Log(line);
+	N3DS_LogFlush();
+}
+
+// Try to return unused memory at the heap's end back to the system via malloc_trim.
+// newlib malloc_trim returns 1 if it freed memory, 0 if nothing was released.
+// Logs before/after fordblks and keepcost; returns true if memory was freed (rc != 0).
+bool N3DS_TrimHeap()
+{
+	struct mallinfo mi = mallinfo();
+	int rc = malloc_trim(0);
+	struct mallinfo mi2 = mallinfo();
+	char line[240];
+	snprintf(line, sizeof(line), "[diag] trim rc=%d: free %u->%u KB, keepcost %u->%u KB\n",
+		rc,
+		(unsigned)(mi.fordblks / 1024), (unsigned)(mi2.fordblks / 1024),
+		(unsigned)(mi.keepcost / 1024), (unsigned)(mi2.keepcost / 1024));
+	N3DS_Log(line);
+	N3DS_LogFlush();
+	return rc != 0;
+}
