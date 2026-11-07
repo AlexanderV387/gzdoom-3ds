@@ -34,10 +34,11 @@ Copy `uzdoom.3dsx` anywhere on the SD card and the game to `sdmc:/3ds/gzdoom/` (
 
 Before shipping a `.3dsx` artifact:
 
-1. **RomFS contents:** `uzdoom.pk3` and `game_support.pk3` must be present in the build tree before invoking `3dsxtool`.
-2. **Build command:** `3dsxtool --romfs=<romfsdir> -o <output>.3dsx <elf>` (the `--romfs` flag is mandatory).
-3. **Versioned ELF:** keep a dated copy of the ELF alongside the 3DSX (e.g., `uzdoom-prueba13.elf`). Use it with `arm-none-eabi-addr2line -f -C -e <elf> <address>` to resolve crash traces from `log.txt`.
-4. **String markers:** run `arm-none-eabi-nm --defined-only <elf> | grep -i test` or `strings <3dsx> | grep TEST` to confirm diagnostic markers (TEST13) are present in the artifact.
+1. **RomFS structure:** `i_main_3ds.cpp` looks for `romfs:/data/BASEWAD`. Files must be under `<romfsdir>/data/uzdoom.pk3` and `<romfsdir>/data/game_support.pk3`, not at the RomFS root. Verify with `strings <3dsx> | grep data/` or by inspecting the archive.
+2. **Filters:** apply the same PK3 filters as `platform/3ds/build.sh` (remove desktop `ui/` and CJK fonts). Unfiltered PK3s inflate the 3DSX unnecessarily (~11 MB extra).
+3. **Build command:** `3dsxtool <elf> <output>.3dsx --romfs=<romfsdir>` (the `--romfs` flag is mandatory; note the argument order).
+4. **Versioned ELF:** keep a dated copy of the ELF alongside the 3DSX (e.g., `uzdoom-prueba13.elf`). Use it with `arm-none-eabi-addr2line -f -C -e <elf> <address>` to resolve crash traces from `log.txt`.
+5. **String markers:** run `strings <3dsx> | grep TEST` to confirm diagnostic markers (TEST13) are present in the artifact.
 
 ## Known open items
 
