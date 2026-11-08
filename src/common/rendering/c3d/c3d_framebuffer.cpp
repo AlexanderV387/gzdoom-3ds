@@ -122,7 +122,15 @@ void C3DFrameBuffer::InitializeState()
 void C3DFrameBuffer::ScreenBegin()
 {
 	if (mFrameStarted) return;
+	#ifdef __3DS__
+	static int test14_fb_screenbegin = 0;
+	if (test14_fb_screenbegin < 5) Printf("TEST14: ScreenBegin -> C3D_FrameBegin\n");
+	#endif
 	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);	// waits for the previous frame's drawing
+	#ifdef __3DS__
+	if (test14_fb_screenbegin < 5) Printf("TEST14: C3D_FrameBegin returned\n");
+	test14_fb_screenbegin++;
+	#endif
 	RunDeferredFrees();
 	C3D_RenderTargetClear(mTop, C3D_CLEAR_ALL, 0x000000ff, 0);
 	C3D_FrameDrawOn(mTop);
@@ -148,7 +156,15 @@ void C3DFrameBuffer::Update()
 	ScreenBegin();
 	Draw2D();		// everything 2D still pending (menus, HUD, console, title)
 	twod->Clear();
+	#ifdef __3DS__
+	static int test14_fb_update = 0;
+	if (test14_fb_update < 5) Printf("TEST14: Update -> C3D_FrameEnd\n");
+	#endif
 	C3D_FrameEnd(0);
+	#ifdef __3DS__
+	if (test14_fb_update < 5) Printf("TEST14: C3D_FrameEnd returned\n");
+	test14_fb_update++;
+	#endif
 	mFrameStarted = false;
 	TheRenderState->ResetDeviceState();
 	TheRenderState->BeginFrame();

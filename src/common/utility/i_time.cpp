@@ -27,6 +27,9 @@
 #include <assert.h>
 #include "i_time.h"
 #include "vm.h"
+#ifdef __3DS__
+#include "printf.h"
+#endif
 
 //==========================================================================
 //
@@ -112,8 +115,17 @@ int I_WaitForTic(int prevtic, double const ticrate)
 	// Waits until the current tic is greater than prevtic. Time must not be frozen.
 
 	int time;
+#ifdef __3DS__
+	static int test14_waitloops = 0;
+	if (test14_waitloops < 5) Printf("TEST14: I_WaitForTic entry, prevtic=%d\n", prevtic);
+#endif
 	while ((time = I_GetTime(ticrate)) <= prevtic)
 	{
+#ifdef __3DS__
+		static int test14_inner = 0;
+		if (test14_inner < 20) Printf("TEST14: I_WaitForTic loop %d, time=%d prevtic=%d\n", test14_inner, time, prevtic);
+		test14_inner++;
+#endif
 		// Windows-specific note:
 		// The minimum amount of time a thread can sleep is controlled by timeBeginPeriod.
 		// We set this to 1 ms in DoMain.
@@ -127,12 +139,18 @@ int I_WaitForTic(int prevtic, double const ticrate)
 
 			if (sleepTime > 2)
 			{
+#ifdef __3DS__
+				if (test14_waitloops < 5) Printf("TEST14: sleeping %lu ms\n", (unsigned long)(sleepTime - 2));
+#endif
 				std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime - 2));
 			}
 		}
 
 		I_SetFrameTime();
 	}
+#ifdef __3DS__
+	test14_waitloops++;
+#endif
 
 	return time;
 }
