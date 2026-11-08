@@ -2,7 +2,11 @@
 
 Branch `uzdoom-3ds` of [AlexanderV387/gzdoom-3ds](https://github.com/AlexanderV387/gzdoom-3ds), part of [n3ds-ports](https://github.com/AlexanderV387/n3ds-ports). UZDoom (the GZDoom successor, `trunk` of November 2026, preparing 4.15) with its whole hardware renderer drawn by the PICA200 through citro3d: a new video backend, not a software renderer.
 
-**Status (2026-11-07): past sound init and I_Rumble null-guard; malloc(4915200) fails at start screen render.** Test 13 (`uzdoom-prueba13.3dsx`) reduces the generic start-screen bitmap from 1280×960 to 640×480 on 3DS (saves ~3.7 MB peak), keeping PC at 1280×960. Confirmed in code; awaiting hardware test.
+**Status (2026-11-08): TEST16 (`uzdoom-prueba16.3dsx`) built; awaiting New 3DS hardware test.** citro3d v1.7.1 `C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK)`: SYNCDRAW runs `C3D_FrameSync` first (vblank wait); NONBLOCK only makes the subsequent `gxCmdQueueWait(0)` non-blocking. Interpretation of results:
+- **No FB_out:** FrameSync blocked on vblank, or log I/O itself blocked. Cannot distinguish without further instrumentation.
+- **FB_out=0:** Two possibilities: (a) `inFrame` was still true from a prior frame that did not complete FrameEnd; (b) FrameSync completed but `gxCmdQueueWait(0)` found the GPU queue busy. Since the local call chain has one callsite and P1 reached FrameEnd, (b) is the leading hypothesis but not certain — a missed or failed FrameEnd could leave `inFrame=true`.
+- **FB_out=1:** FrameBegin succeeded, but timing may be altered by log I/O during FB_in. Does not prove the hang is resolved.
+`mFrameBlocked` guards all GPU callers (ScreenBegin, BeginFrame, Draw2D, SetScissor, SetViewport, Clear, Apply); Update early-return clears twod, resets render state, calls Super::Update, then unblocks for next frame retry. TEST14 loop markers retained for DoomLoop iteration tracking.
 
 ## Building
 

@@ -4065,34 +4065,10 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 		StartWindow->Progress(max_progress);
 		if (StartScreen)
 		{
-			#ifdef __3DS__
-			N3DS_Log("TEST15: before P1"); N3DS_LogFlush();
-			#endif
 			StartScreen->Progress(max_progress);	// advance progress bar to the end.
-			#ifdef __3DS__
-			N3DS_Log("TEST15: after P1"); N3DS_LogFlush();
-			#endif
-			#ifdef __3DS__
-			N3DS_Log("TEST15: before R1"); N3DS_LogFlush();
-			#endif
 			StartScreen->Render(true);
-			#ifdef __3DS__
-			N3DS_Log("TEST15: after R1"); N3DS_LogFlush();
-			#endif
-			#ifdef __3DS__
-			N3DS_Log("TEST15: before P2"); N3DS_LogFlush();
-			#endif
 			StartScreen->Progress(max_progress);	// do this again because Progress advances the counter after redrawing.
-			#ifdef __3DS__
-			N3DS_Log("TEST15: after P2"); N3DS_LogFlush();
-			#endif
-			#ifdef __3DS__
-			N3DS_Log("TEST15: before R2"); N3DS_LogFlush();
-			#endif
 			StartScreen->Render(true);
-			#ifdef __3DS__
-			N3DS_Log("TEST15: after R2"); N3DS_LogFlush();
-			#endif
 			delete StartScreen;
 			StartScreen = NULL;
 		}

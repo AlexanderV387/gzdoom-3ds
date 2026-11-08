@@ -217,10 +217,16 @@ public:
 
 	void ScreenBegin();	// starts the citro3d frame if needed
 	C3D_RenderTarget *Target() { return mTop; }
+	#ifdef __3DS__
+	bool IsFrameBlocked() const { return mFrameBlocked; }
+	#endif
 
 private:
 	C3D_RenderTarget *mTop = nullptr;
 	bool mFrameStarted = false;
+	#ifdef __3DS__
+	bool mFrameBlocked = false;
+	#endif
 };
 
 C3DFrameBuffer *Get();

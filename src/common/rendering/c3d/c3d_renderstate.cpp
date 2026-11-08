@@ -102,6 +102,9 @@ void C3DRenderState::EnableDepthTest(bool on)
 void C3DRenderState::SetScissor(int x, int y, int w, int h)
 {
 	Get()->ScreenBegin();
+	#ifdef __3DS__
+	if (Get()->IsFrameBlocked()) return;
+	#endif
 	if (w < 0)
 	{
 		C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
@@ -116,6 +119,9 @@ void C3DRenderState::SetScissor(int x, int y, int w, int h)
 void C3DRenderState::SetViewport(int x, int y, int w, int h)
 {
 	Get()->ScreenBegin();
+	#ifdef __3DS__
+	if (Get()->IsFrameBlocked()) return;
+	#endif
 	const int W = Get()->GetClientWidth();
 	C3D_SetViewport(y, W - x - w, h, w);
 }
@@ -123,6 +129,9 @@ void C3DRenderState::SetViewport(int x, int y, int w, int h)
 void C3DRenderState::Clear(int targets)
 {
 	Get()->ScreenBegin();
+	#ifdef __3DS__
+	if (Get()->IsFrameBlocked()) return;
+	#endif
 	C3D_ClearBits bits = (C3D_ClearBits)0;
 	if (targets & CT_Color) bits = (C3D_ClearBits)(bits | C3D_CLEAR_COLOR);
 	if (targets & (CT_Depth | CT_Stencil)) bits = (C3D_ClearBits)(bits | C3D_CLEAR_DEPTH);
@@ -465,6 +474,9 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 bool C3DRenderState::Apply(int dt)
 {
 	Get()->ScreenBegin();
+	#ifdef __3DS__
+	if (Get()->IsFrameBlocked()) return false;
+	#endif
 
 	if (mMaterial.mChanged) ApplyMaterial();
 	ApplyBlendMode();

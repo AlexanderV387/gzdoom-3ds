@@ -123,14 +123,25 @@ void C3DFrameBuffer::ScreenBegin()
 {
 	if (mFrameStarted) return;
 	#ifdef __3DS__
-	static int test14_fb_screenbegin = 0;
-	if (test14_fb_screenbegin < 5) Printf("TEST14: ScreenBegin -> C3D_FrameBegin\n");
+	if (mFrameBlocked) return;
 	#endif
-	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);	// waits for the previous frame's drawing
 	#ifdef __3DS__
-	if (test14_fb_screenbegin < 5) Printf("TEST14: C3D_FrameBegin returned\n");
-	test14_fb_screenbegin++;
+	// TEST16: NONBLOCK makes the post-sync gxCmdQueue check non-blocking.
+	// With SYNCDRAW, FrameBegin still runs C3D_FrameSync first (vblank wait).
+	// FB_in/FB_out are interventions (line-buffered Printf = implicit I/O).
+	static int test16_fb = 0;
+	if (test16_fb < 5) Printf("TEST16: FB_in\n");
 	#endif
+	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+	#ifdef __3DS__
+	if (test16_fb < 5) Printf("TEST16: FB_out=%d\n", ok ? 1 : 0);
+	test16_fb++;
+	#endif
+	if (!ok)
+	{
+		mFrameBlocked = true;
+		return;
+	}
 	RunDeferredFrees();
 	C3D_RenderTargetClear(mTop, C3D_CLEAR_ALL, 0x000000ff, 0);
 	C3D_FrameDrawOn(mTop);
@@ -143,28 +154,37 @@ void C3DFrameBuffer::BeginFrame()
 	mViewpoints->Clear();
 	TheRenderState->BeginFrame();
 	ScreenBegin();
+	#ifdef __3DS__
+	if (mFrameBlocked) return;
+	#endif
 }
 
 void C3DFrameBuffer::Draw2D()
 {
 	ScreenBegin();
+	#ifdef __3DS__
+	if (mFrameBlocked) return;
+	#endif
 	::Draw2D(twod, *TheRenderState);
 }
 
 void C3DFrameBuffer::Update()
 {
 	ScreenBegin();
+	#ifdef __3DS__
+	if (mFrameBlocked)
+	{
+		twod->Clear();
+		TheRenderState->ResetDeviceState();
+		TheRenderState->BeginFrame();
+		Super::Update();
+		mFrameBlocked = false;
+		return;
+	}
+	#endif
 	Draw2D();		// everything 2D still pending (menus, HUD, console, title)
 	twod->Clear();
-	#ifdef __3DS__
-	static int test14_fb_update = 0;
-	if (test14_fb_update < 5) Printf("TEST14: Update -> C3D_FrameEnd\n");
-	#endif
 	C3D_FrameEnd(0);
-	#ifdef __3DS__
-	if (test14_fb_update < 5) Printf("TEST14: C3D_FrameEnd returned\n");
-	test14_fb_update++;
-	#endif
 	mFrameStarted = false;
 	TheRenderState->ResetDeviceState();
 	TheRenderState->BeginFrame();
