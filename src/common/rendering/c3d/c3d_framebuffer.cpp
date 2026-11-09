@@ -74,7 +74,7 @@ void RunDeferredFrees()
 C3DFrameBuffer::C3DFrameBuffer() : DFrameBuffer(400, 240)
 {
 	TheFrameBuffer = this;
-	C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 4);
+	C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 	mTop = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
 	C3D_RenderTargetSetOutput(mTop, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
@@ -116,6 +116,7 @@ void C3DFrameBuffer::InitializeState()
 	mViewpoints = new HWViewpointBuffer(mPipelineNbr);
 	mLights = new FLightBuffer(mPipelineNbr);
 	mBones = new BoneBuffer(mPipelineNbr);
+
 	Printf("C3D: backend ready, %u KB of linear memory free\n", (unsigned)(linearSpaceFree() / 1024));
 }
 
@@ -125,18 +126,26 @@ void C3DFrameBuffer::ScreenBegin()
 	#ifdef __3DS__
 	if (mFrameBlocked) return;
 	#endif
-	#ifdef __3DS__
-	// TEST16: NONBLOCK makes the post-sync gxCmdQueue check non-blocking.
-	// With SYNCDRAW, FrameBegin still runs C3D_FrameSync first (vblank wait).
-	// FB_in/FB_out are interventions (line-buffered Printf = implicit I/O).
-	static int test16_fb = 0;
-	if (test16_fb < 5) Printf("TEST16: FB_in\n");
-	#endif
+
+	// Try to start a frame. If it fails, retry with vblank waits up to ~2 seconds.
 	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
 	#ifdef __3DS__
-	if (test16_fb < 5) Printf("TEST16: FB_out=%d\n", ok ? 1 : 0);
-	test16_fb++;
+	if (!ok)
+	{
+		for (int i = 0; i < 120; i++)
+		{
+			gspWaitForVBlank();
+			ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+			if (ok) break;
+		}
+		if (!ok)
+		{
+			mFrameBlocked = true;
+			return;
+		}
+	}
 	#endif
+
 	if (!ok)
 	{
 		mFrameBlocked = true;
@@ -155,7 +164,10 @@ void C3DFrameBuffer::BeginFrame()
 	TheRenderState->BeginFrame();
 	ScreenBegin();
 	#ifdef __3DS__
-	if (mFrameBlocked) return;
+	if (mFrameBlocked)
+	{
+		return;
+	}
 	#endif
 }
 

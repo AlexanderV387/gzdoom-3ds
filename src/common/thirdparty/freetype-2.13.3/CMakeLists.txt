@@ -633,6 +633,15 @@ if (NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL)
     VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
     COMPATIBILITY SameMajorVersion)
 
+  # Add dependency targets to the export set so CMake doesn't complain about
+  # missing targets during install(EXPORT). This is needed when bzip2/zlib are
+  # built internally (e.g., Nintendo 3DS cross-compiles with devkitPro).
+  if(TARGET bz2)
+    install(TARGETS bz2 EXPORT freetype-targets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  endif()
+  if(TARGET zlib)
+    install(TARGETS zlib EXPORT freetype-targets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  endif()
   install(
     TARGETS freetype freetype-interface
       EXPORT freetype-targets

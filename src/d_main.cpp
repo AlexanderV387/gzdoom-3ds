@@ -3844,8 +3844,14 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (!batchrun) Printf ("ParseTeamInfo: Load team definitions.\n");
 	FTeam::ParseTeamInfo ();
 
+#ifdef __3DS__
+	N3DS_Log("[TEST21] Before R_ParseTrnslate+PClassActor::StaticInit\n"); N3DS_LogFlush();
+#endif
 	R_ParseTrnslate();
 	PClassActor::StaticInit ();
+#ifdef __3DS__
+	N3DS_Log("[TEST21] After PClassActor::StaticInit (LoadActors returned)\n"); N3DS_LogFlush();
+#endif
 	FBaseCVar::InitZSCallbacks ();
 
 	Job_Init();

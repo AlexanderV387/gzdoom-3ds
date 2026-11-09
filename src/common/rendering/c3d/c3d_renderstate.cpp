@@ -8,12 +8,14 @@
 
 #include <string.h>
 #include <algorithm>
+#include <string>
 
 #include "c3d_backend.h"
 #include "c3d_internal.h"
 #include "hw_material.h"
 #include "texturemanager.h"
 #include "printf.h"
+#include "platform_3ds.h"
 
 namespace C3DRenderer
 {
@@ -24,6 +26,8 @@ static size_t IndexRingPos = 0;
 static const size_t IndexRingSize = 512 * 1024;	// indices per frame
 
 static bool WarnedLines = false;
+
+
 
 void C3DRenderState::BeginFrame()
 {
@@ -435,6 +439,11 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	}
 	if (attrIndex[0] < 0) return false;
 
+	// Pad the permutation to cover the full stride. The PICA200 requires that the
+	// sum of attribute and padding sizes in the permutation exactly equals the
+	// buffer's stride, otherwise it freezes [GBATEK "3DS GPU Pitfalls"].
+	if (pos < vb->mStride) addPadding(vb->mStride - pos);
+
 	// What the buffer lacks comes from fixed attributes.
 	if (!haveTex)
 	{
@@ -461,7 +470,13 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	}
 
 	uint8_t *base = (uint8_t *)vb->Memory() + size_t(baseVertex) * vb->mStride;
-	BufInfo_Add(bi, base, vb->mStride, count, permutation);
+	int bufInfoResult = BufInfo_Add(bi, base, vb->mStride, count, permutation);
+
+
+	if (bufInfoResult < 0)
+	{
+		return false;
+	}
 	return true;
 }
 
@@ -534,6 +549,7 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 	if (!SetupAttributes(mVertexOffsets[0])) return;
 
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
+
 	GSPGPU_FlushDataCache((uint8_t *)vb->Memory() + size_t(mVertexOffsets[0] + index) * vb->mStride, size_t(count) * vb->mStride);
 	C3D_DrawArrays(Primitive(dt), index, count);
 }
@@ -554,12 +570,13 @@ void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 	const int base = mVertexOffsets[0] + int(lo);
 	if (!SetupAttributes(base)) return;
 
+	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
+
 	uint16_t *dst = IndexRing + IndexRingPos;
 	for (int i = 0; i < count; i++) dst[i] = uint16_t(src[i] - lo);
 	IndexRingPos += (count + 1) & ~1;	// keep the next block 4-byte aligned
 	GSPGPU_FlushDataCache(dst, count * sizeof(uint16_t));
 
-	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
 	GSPGPU_FlushDataCache((uint8_t *)vb->Memory() + size_t(base) * vb->mStride, size_t(hi - lo + 1) * vb->mStride);
 	C3D_DrawElements(Primitive(dt), count, C3D_UNSIGNED_SHORT, dst);
 }
