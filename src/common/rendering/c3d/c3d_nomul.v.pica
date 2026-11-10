@@ -1,0 +1,40 @@
+; c3d_nomul.v.pica
+; Engine shader minus the mul for color, replaced with mov (test 27, variant V2).
+; Same uniforms as the engine shader (8 fvecs), same position transform,
+; same texcoord dp4, but color is passed through directly.
+;
+; 2026 AlexanderV387 (Nintendo 3DS port). GPL v3 (see LICENSE).
+
+.fvec mvp[4]
+.fvec colorscale
+.fvec colormul
+.fvec texmat[2]
+
+.constf ones(1.0, 1.0, 1.0, 1.0)
+
+.out outpos position
+.out outtc0 texcoord0
+.out outcol color
+
+.alias inpos v0
+.alias intex v1
+.alias incol v2
+
+.proc main
+	mov r0.xyz, inpos
+	mov r0.w,   ones
+
+	dp4 outpos.x, mvp[0], r0
+	dp4 outpos.y, mvp[1], r0
+	dp4 outpos.z, mvp[2], r0
+	dp4 outpos.w, mvp[3], r0
+
+	mov r2.xy, intex
+	mov r2.zw, ones
+	dp4 outtc0.x, texmat[0], r2
+	dp4 outtc0.y, texmat[1], r2
+
+	mov outcol, incol
+
+	end
+.end

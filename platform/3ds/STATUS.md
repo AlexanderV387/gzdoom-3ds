@@ -18,17 +18,18 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **El comando de dibujo es la causa del cuelgue:** sin dibujo enviado (`c3d-nodraw.txt`), los fotogramas 0-11 corren sin problemas (prueba 25, pasada B, línea 51-73).
 9. **La textura no es la causa:** sin textura (`c3d-notex.txt`), el dibujo se envía igual y la GPU se cuelga (prueba 25, pasada D, línea 50-53).
 10. **El problema no son los buffers del motor:** un triángulo mínimo con `DrawArrays`, vértices en memoria lineal y sin textura también cuelga la GPU (prueba 25, pasada C, línea 49-51). El shader del motor se usa en ambos casos.
-11. **El shader del motor es el culpable.** Con el shader mínimo de `simple_tri` (un uniforme, dos atributos, sin texcoord output) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor (8 uniformes, 3 atributos, texcoord output) la GPU se cuelga (prueba 26, log B). El render target y la GPU en general funcionan.
+11. **El cuelgue depende del shader o de sus datos.** Con la configuración de `simple_tri` (shader distinto, matriz `Mtx_OrthoTilt`, vértices en coordenadas de pantalla con z=0.5, dos atributos fijos) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor y sus datos (matriz identidad, vértices en clip space con z=-0.5, tres atributos) la GPU se cuelga (prueba 26, log B). La pasada cambió shader, matriz, vértices y atributos a la vez: no se sabe cuál es la causa exacta. Los uniformes del shader del motor se cargaron correctamente (log A, línea 46: `DVLE=1 mvp=0 colorscale=4 colormul=5 texmat=6`).
 
 ## Pregunta abierta
 
-**¿Qué aspecto del shader del motor causa el cuelgue?** ¿Son los **uniformes extra** (`colorscale`, `colormul`, `texmat[2]` que suman 4 fvecs más), las **instrucciones extra** (dp4 para texcoords y mul para color), o el **output de texcoord** (`outtc0`)?
+¿Qué aspecto del shader del motor o de sus datos causa el cuelgue? El test 26 cambió shader, matriz, vértices y atributos a la vez. Hay que separar:
+- ¿El **código** del shader del motor (sus instrucciones) es el problema?
+- ¿Los **datos** que se le pasan (matriz identidad, vértices en clip space, atributos)?
+- ¿Los **uniformes extra** (`colorscale`, `colormul`, `texmat[2]`)?
+- ¿Las **instrucciones extra** (dp4 para texcoords, mul para color)?
+- ¿El **output de texcoord** (`outtc0`)?
 
-El shader del motor (`c3d_main.v.pica`) vs el de `simple_tri`:
-- Uniformes: 8 fvecs (mvp[4]+colorscale+colormul+texmat[2]) vs 4 fvecs (projection[4])
-- Atributos: 3 (v0=v1=v2) vs 2 (v0=v1)
-- Outputs: 3 (outpos+outtc0+outcol) vs 2 (outpos+outclr)
-- Instrucciones: 11 (dp4×6, mov×3, mul×2) vs 7 (dp4×4, mov×3)
+Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
 ## Prueba 26 (hecha, con 2 pasadas)
 
@@ -38,69 +39,92 @@ El shader del motor (`c3d_main.v.pica`) vs el de `simple_tri`:
 
 **Conclusión:** El problema es el shader del motor (`c3d_main.v.pica`) o cómo se configuran sus uniformes. El render target, la GPU y citro3d están sanos.
 
-## Prueba 27 (propuesta, sin aprobar)
+## Prueba 27 (compilada, esperando logs)
 
-**Pregunta:** ¿El cuelgue lo provocan los uniformes extra del shader del motor, o las instrucciones extra?
+**Pregunta:** ¿Qué aspecto concreto del shader del motor (código, instrucciones extra, output de texcoord, o datos) causa el cuelgue de GPU?
 
-**Diseño:** shader intermedio (`c3d_mid.v.pica`) que tiene los mismos uniformes que el shader del motor (8 fvecs) pero solo las instrucciones de simple_tri (dp4×4 para posición + mov para color). Sin texcoord output, sin dp4 extra, sin mul.
+**Lo que ya sabemos:**
+- Test 26, log A: `simple_tri` shader funciona (triángulo visible, 12 frames sin hang).
+- Test 26, log B: shader del motor (`c3d_main.v.pica`) con datos del motor cuelga.
+- Pero test 26 cambió shader, matriz, vértices y atributos a la vez.
 
-**Hipótesis A: Son los uniformes extra.**
-- El shader intermedio se cuelga igual que el del motor.
-- En el log: `GPU HANG` en frame 1.
+**5 variantes en una sola compilación.** Cada una se activa con un archivo vacío en la SD:
 
-**Hipótesis B: Son las instrucciones extra (dp4 para texcoords, mul para color).**
-- El shader intermedio funciona como simple_tri.
-- En el log: frames 0-11 `begin=ok`, sin `GPU HANG`.
+| Var | Shader | Instrucciones | Uniformes | Color en | `outtc0` | ¿Qué prueba? |
+|---|---|---|---|---|---|---|
+| V0 | `c3d_main` (motor) | 11 (full) | 8 fvecs | v2 | sí | Baseline: esperado HANG |
+| V1 | `c3d_nouttc0` | 9 (-2 dp4 tc) | 8 fvecs | v2 | **no** | ¿Es `outtc0`? |
+| V2 | `c3d_nomul` | 9 (-mul +mov) | 8 fvecs | v2 | sí | ¿Es el `mul` del color? |
+| V3 | `c3d_intermed` | 7 (=simple_tri) | 8 fvecs | v2 | **no** | ¿Son los 8 uniformes? |
+| V4 | `simple_tri` | 7 | 4 fvecs | v1 | no | ¿Son los datos del motor? |
 
-**Hipótesis C: Es el output de texcoord (`outtc0`).**
-- Mismo resultado que B (porque el intermedio no tiene `outtc0`).
-- Para distinguir B de C se necesitaría un test 28.
+**Diferencias entre variantes (una sola variable cada paso):**
 
-**Única variable que cambia:** el shader program. Todo lo demás igual que test 26 (mismos vértices, mismo render target, mismos combiners).
+| Cambio | V0→V1 | V1→V2 | V2→V3 | V3→V4 |
+|---|---|---|---|---|
+| Shader | nouttc0 (-outtc0, -2dp4) | nomul (-mul,+mov) | intermed (-tex dp4) | simple_tri (4 uniforms) |
+| outtc0 | ❌→❌ | ❌→✅ | ✅→❌ | ❌→❌ |
+| mul color | ✅→✅ | ✅→❌ | ❌→❌ | ❌→❌ |
+| Uniformes | 8→8 | 8→8 | 8→8 | 8→4 |
+| Color attr | v2→v2 | v2→v2 | v2→v2 | v2→v1 |
 
-Nuevo interruptor `c3d-midshader.txt`: si existe junto a `c3d-triangle.txt`, usa `c3d_mid.v.pica` en vez del shader del motor.
+**Hipótesis:**
 
-**El shader intermedio (`c3d_mid.v.pica`):**
-```
-.fvec mvp[4]
-.fvec colorscale
-.fvec colormul
-.fvec texmat[2]
+**H1: Es el código del shader (las instrucciones extra).**
+- V1 o V2 funcionan (sin hang), V0 no. V3 funciona.
+- V4: si funciona → los datos del motor no son el problema.
 
-.constf ones(1.0, 1.0, 1.0, 1.0)
+**H2: Es el output de texcoord (`outtc0`).**
+- V1 funciona (sin `outtc0`), V0 no. V2 cuelga (tiene `outtc0`).
+- V3 funciona (sin `outtc0`).
 
-.out outpos position
-.out outcol color
+**H3: Es el `mul` para el color.**
+- V2 funciona (sin `mul`), V0 no. V1 cuelga (tiene `mul`).
+- V3 funciona (sin `mul`).
 
-.alias inpos v0
-.alias incol v1
+**H4: Son los uniformes extra (8 fvecs vs 4).**
+- V3 cuelga (8 fvecs), V4 funciona (4 fvecs).
 
-.proc main
-    mov r0.xyz, inpos
-    mov r0.w,   ones
-    dp4 outpos.x, mvp[0], r0
-    dp4 outpos.y, mvp[1], r0
-    dp4 outpos.z, mvp[2], r0
-    dp4 outpos.w, mvp[3], r0
-    mov outcol, incol
-    end
-.end
-```
+**Autocomprobación (plantilla-prueba.md):**
+1. ¿Una sola pregunta? Sí: ¿qué aspecto del shader/datos causa el cuelgue?
+2. ¿Resultados distinguibles en el log? Sí: `GPU HANG` vs frames 0-11 `begin=ok`.
+3. ¿Una sola variable por paso? Sí (tabla de diferencias arriba).
+4. ¿Hipótesis con resultados distintos? Sí (H1-H4, tabla de veredicto abajo).
+5. ¿El código no rompe el motor en PC? Sí, todo detrás de `#ifdef __3DS__` / diag switch.
+6. ¿La línea `Test:` del log dirá 27? Sí, `c3d_diag.cpp` la escribe con el número de prueba.
+7. ¿Los marcadores se quitan cuando la pregunta está respondida? Sí, al actualizar STATUS.md.
 
-Mismos 8 uniformes que el motor, pero solo 7 instrucciones como simple_tri, y sin `outtc0`.
+**Tabla de veredicto (rellenar con los logs):**
+
+| Variante | H1 (instrucciones) | H2 (outtc0) | H3 (mul) | H4 (uniformes) |
+|---|---|---|---|---|
+| V0 HANG | ✅ baseline | ✅ baseline | ✅ baseline | ✅ baseline |
+| V1 ? | OK→✅ | HANG→✅ | OK→❌ | OK→? |
+| V2 ? | OK→✅ | OK→❌ | HANG→✅ | OK→? |
+| V3 ? | OK→✅ | OK→✅ | OK→✅ | HANG→✅ |
+| V4 ? | OK→✅ | OK→? | OK→? | OK→✅ |
+
+**Interruptores:** archivos vacíos `c3d-v0.txt` a `c3d-v4.txt` en `sdmc:/3ds/gzdoom/`, junto con `c3d-triangle.txt`.
 
 **Pasadas en la consola:**
 
-| Pasada | Archivos de control | Qué mirar |
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
 |---|---|---|
-| A (ref minimal) | `c3d-triangle.txt` + `c3d-minimal-shader.txt` | Triángulo visible (confirmar que funciona) |
-| B (intermedio) | `c3d-triangle.txt` + `c3d-midshader.txt` | Triángulo visible si H_B/C; pantalla negra si H_A |
+| V0 | `c3d-triangle.txt` + `c3d-v0.txt` | Pantalla negra (HANG esperado) |
+| V1 | `c3d-triangle.txt` + `c3d-v1.txt` | Triángulo si funciona, negra si HANG |
+| V2 | `c3d-triangle.txt` + `c3d-v2.txt` | Triángulo si funciona, negra si HANG |
+| V3 | `c3d-triangle.txt` + `c3d-v3.txt` | Triángulo si funciona, negra si HANG |
+| V4 | `c3d-triangle.txt` + `c3d-v4.txt` | Triángulo si funciona, negra si HANG |
 
-Archivos que se tocan:
-- `src/common/rendering/c3d/c3d_mid.v.pica`: nuevo shader intermedio.
-- `src/CMakeLists.txt`: añadir picasso + bin2s para el shader intermedio.
-- `c3d_diag.h` / `c3d_diag.cpp`: nuevo interruptor `MidShader`.
-- `c3d_framebuffer.cpp`: camino para el shader intermedio en `DrawTestTriangle()`.
+Esperar al menos 60 s en cada pasada para que se escriban los 12 frames del log.
+
+Archivos nuevos:
+- `src/common/rendering/c3d/c3d_nouttc0.v.pica`: shader sin `outtc0` ni sus 2 dp4.
+- `src/common/rendering/c3d/c3d_nomul.v.pica`: shader con `mov outcol, incol` en vez de `mul`.
+- `src/common/rendering/c3d/c3d_intermed.v.pica`: shader con 8 uniformes pero cuerpo de simple_tri.
+- `src/CMakeLists.txt`: reglas picasso + bin2s para los 3 nuevos shaders.
+- `c3d_diag.h` / `c3d_diag.cpp`: `Test27Variant` (-1 a 4).
+- `c3d_framebuffer.cpp`: `DrawTestTriangle()` con ramas para V0-V4.
 
 ## Registro de pruebas
 
