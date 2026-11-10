@@ -15,41 +15,59 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 5. Ese primer fotograma tiene **un solo dibujo**: un `DrawElements` 2D de 12 índices, stride 24, tres atributos (posición, coordenadas de textura, color) y con textura (pruebas 17 y 21).
 6. Saltar el trabajo del fotograma 0 solo **mueve** ese dibujo al fotograma 1, que se cuelga igual (prueba 22). Eso **no** demuestra que el contenido no importe: el dibujo seguía ahí.
 7. Los logs pueden perder el final si se apaga la consola: antes solo se hacía `fflush`, que no escribe en la SD (`hechos-3ds.md`, S2). Desde la prueba 25 hay `fsync`.
+8. **El comando de dibujo es la causa del cuelgue:** sin dibujo enviado (`c3d-nodraw.txt`), los fotogramas 0-11 corren sin problemas (prueba 25, pasada B, línea 51-73).
+9. **La textura no es la causa:** sin textura (`c3d-notex.txt`), el dibujo se envía igual y la GPU se cuelga (prueba 25, pasada D, línea 50-53).
+10. **El problema no son los buffers del motor:** un triángulo mínimo con `DrawArrays`, vértices en memoria lineal y sin textura también cuelga la GPU (prueba 25, pasada C, línea 49-51). El shader del motor se usa en ambos casos.
 
 ## Pregunta abierta
 
-**¿El cuelgue lo provoca el comando de dibujo, o algo del fotograma que no es el dibujo (limpiar, presentar en pantalla, el estado)?** Y, si es el dibujo, ¿qué parte: la textura o los vértices e índices?
+**¿El cuelgue lo provoca el shader del motor (vértice o fragmento), o la configuración del estado de renderizado que se comparte entre todos los dibujos?** El shader se compila desde `c3d_main_shbin.h` (shaders precompilados del motor). El triángulo mínimo usa los mismos uniformes y el mismo programa shader.
 
-## Prueba 25 (preparada, por probar)
+## Prueba 25 (hecha, con 4 pasadas)
 
-**Hipótesis:**
-- **H1:** el comando de dibujo del motor cuelga la GPU.
-- **H2:** el cuelgue viene de otra parte del fotograma (limpieza, salida a pantalla, configuración).
-- **H3:** si es el dibujo, el problema es la **textura**.
-- **H4:** si es el dibujo, el problema son los **vértices, índices o atributos**.
+**Resultado:**
+- **A (ref):** `GPU HANG` en frame 1, como siempre. ✅ Referencia confirmada.
+- **B (`c3d-nodraw.txt`):** frames 0-11 todos `begin=ok`, sin `GPU HANG`. ✅ **H1 confirmada**: el dibujo cuelga.
+- **C (`c3d-triangle.txt`):** `GPU HANG` en frame 1 con triángulo mínimo. ❌ No es solo el dibujo del motor: el shader o el estado compartido fallan.
+- **D (`c3d-notex.txt`):** `GPU HANG` en frame 1 sin textura. ❌ **H3 descartada**.
 
-**Única variable por pasada:** un archivo vacío en `sdmc:/3ds/gzdoom/` (se lee al arrancar).
+**Hipótesis descartadas:** H2 (no es el dibujo), H3 (textura), H4 (buffers del motor).
+**Hipótesis confirmada:** H1 (el dibujo cuelga), pero la causa es más profunda: algo común a todo dibujo, incluido el triángulo mínimo.
 
-| Pasada | Archivo de control | Si sale esto en el log `[C3D]`… | …significa |
-|---|---|---|---|
-| A | ninguno | `GPU HANG` tras `frame 0` con `elements=1` | lo de siempre (referencia) |
-| B | `c3d-nodraw.txt` | `frame N: begin=ok` en todos los fotogramas y sin `GPU HANG` | **H1**: el dibujo lo cuelga |
-| B | ídem | `GPU HANG` igual que en A | **H2**: no es el dibujo |
-| C | `c3d-triangle.txt` | sin `GPU HANG` y **un triángulo rojo** en la pantalla de arriba | lo básico funciona (shader, atributos, combinadores, salida). Apuntar hacia dónde mira el triángulo |
-| C | ídem | `GPU HANG` | falla algo básico de citro3d en este backend (shader, inicio, render target) |
-| D | `c3d-notex.txt` | sin `GPU HANG` | **H3**: la textura |
-| D | ídem | `GPU HANG` | **H4**: vértices, índices o atributos |
+**Nuevo foco:** el shader del motor (vértice/fragmento) o la configuración del estado de renderizado compartido.
 
-**Cómo probar (Alex):**
-- Una pasada cada vez, con un solo archivo de control (o ninguno en la A). Hay que borrar el de la pasada anterior.
-- Esperar **60 segundos** después de que termine de cargar.
-- Foto de la pantalla de arriba.
-- Renombrar `log.txt` a `log-A.txt`, `log-B.txt`… antes de la siguiente pasada.
+## Análisis de la prueba 25
 
-**Siguiente paso según el resultado:**
-- H1 + H4 → la prueba 26 cambia solo el formato del dibujo: `DrawArrays` en lugar de `DrawElements`, o atributos sin color.
-- H1 + H3 → la prueba 26 prueba con una textura pequeña fija, de 64x64.
-- H2 → la prueba 26 quita la limpieza de mitad de fotograma (`Clear` de `Draw2D`) y la salida a pantalla, de una en una.
+La prueba 25 confirmó que el cuelgue lo provoca **cualquier** comando de dibujo enviado a la GPU, no solo el del motor. Con `c3d-nodraw.txt` los fotogramas corren sin problemas, pero con `c3d-triangle.txt` (un triángulo mínimo sin nada del motor) la GPU se cuelga igual.
+
+Esto descarta que el problema sean los buffers de vértices del motor, las texturas o los índices. Quedan dos sospechosos:
+- **El shader del motor** (`c3d_main.v.pica`): tiene 4 uniformes (mvp[4]=16 slots, colorscale, colormul, texmat[2]=2) y 3 atributos. El ejemplo `simple_tri` que funciona usa solo 1 uniforme y 2 atributos.
+- **El estado de renderizado compartido**: combiners, blending, depth test, viewport, render target. Se configuran una vez y se heredan a todo dibujo.
+
+## Prueba 26 (propuesta, sin aprobar)
+
+**Pregunta:** ¿El shader del motor (`c3d_main.v.pica`) es el que cuelga la GPU, o es el estado de renderizado compartido?
+
+**Hipótesis A: El shader del motor es el culpable.**
+- Si usamos un shader mínimo (como `simple_tri`) para el triángulo de prueba, la GPU no se cuelga.
+- En el log: `frame 0: begin=ok ... draws: arrays=1`, luego `frame 1: begin=ok`. Sin `GPU HANG`.
+
+**Hipótesis B: No es el shader, es el estado de renderizado compartido.**
+- Aunque usemos un shader mínimo, la GPU se sigue colgando.
+- En el log: `GPU HANG: frame 1 could not start`, igual que siempre.
+
+**Única variable que cambia:** el shader program bound al dibujar el triángulo. Nuevo interruptor `c3d-minimal-shader.txt`: si existe, `DrawTestTriangle()` compila y usa un shader mínimo (1 uniforme `projection[4]`, 2 atributos: posición y color) en lugar del shader del motor.
+
+Archivos que se tocan:
+- `c3d_diag.h` / `c3d_diag.cpp`: nuevo interruptor `MinimalShader`.
+- `c3d_framebuffer.cpp`: `DrawTestTriangle()` conlaza un shader mínimo cuando `MinimalShader` es true.
+
+**Pasadas en la consola:**
+
+| Pasada | Archivos de control | Qué mirar |
+|---|---|---|
+| A (ref) | `c3d-triangle.txt` | Pantalla negra (hang, como siempre) |
+| B | `c3d-triangle.txt` + `c3d-minimal-shader.txt` | Triángulo rojo si H_A; pantalla negra si H_B |
 
 ## Registro de pruebas
 
@@ -69,11 +87,12 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 21–22 | Saltar el fotograma 0 | El fotograma 1 se cuelga igual (mal interpretado; ver "Lo que sabemos", 6) |
 | 23 | Comprobación de salud de la GPU al iniciar | Rompió el arranque; 23b sin datos nuevos |
 | 24 | Buffer de comandos normal y limpieza | Log cortado en las fuentes; sin marcadores: no aporta |
-| 25 | Ver arriba | **Pendiente** |
+| 25 | ¿Qué parte del fotograma cuelga? | H1 confirmada (dibujo cuelga, pasada B). H3 descartada (sin textura igual cuelga, D). H4 descartada (triángulo mínimo cuelga, C). Causa: shader o estado compartido. |
 
 ## Pendientes que no son la pregunta abierta
 
-- Una línea del log de la prueba 24 tiene bytes basura antes de `Selecting OpenGL backend...` (no son códigos de color: esos ya se quitan). Mirar si se repite con la 25.
+- **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Es un bug de formato del motor (`%o` no sustituido). No afecta a la 3DS.
+- **HOME no responde:** en ninguna de las 4 pasadas el botón HOME abrió la consola de depuración. Puede ser porque el hilo de la consola no arranca o porque el cuelgue de GPU bloquea el hilo principal. Pendiente de investigar.
 - Entrada de mandos: el gestor del joystick está vacío (punto 2).
 - Líneas y puntos (automapa), niebla, luz, portales, sonido, controles 3DS, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
 - La carga de las fuentes TrueType latinas genera atlas de 1 MB cada una con el juego de caracteres completo: lento y caro en memoria. Recortar el juego de caracteres cuando el resto funcione.
