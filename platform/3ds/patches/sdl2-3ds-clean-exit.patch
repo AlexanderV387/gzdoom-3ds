@@ -1,0 +1,17 @@
+diff --git a/src/main/n3ds/SDL_n3ds_main.c b/src/main/n3ds/SDL_n3ds_main.c
+index 82f7754..be785fd 100644
+--- a/src/main/n3ds/SDL_n3ds_main.c
++++ b/src/main/n3ds/SDL_n3ds_main.c
+@@ -53,7 +53,11 @@ N3DS_Init(void)
+ SDL_FORCE_INLINE void
+ N3DS_Quit(void)
+ {
+-    romfsExit();
++    /*
++     * Do not tear down the devoptab here. C and C++ stream destructors run
++     * after SDL_main returns and may still close files opened through it.
++     * Horizon releases the RomFS service together with the process.
++     */
+ }
+
+ #endif /* __3DS__ */

@@ -14,6 +14,10 @@
 set -eu
 
 DEVKITPRO=${DEVKITPRO:-/opt/devkitpro}
+# SDL2 for the 3DS: platform/3ds/build-sdl2-3ds.sh puts it in build-deps/ (devkitPro has none).
+if [ -z "${SDL2_3DS:-}" ] && [ -f build-deps/sdl2-3ds-prefix/lib/libSDL2.a ]; then
+	SDL2_3DS=$PWD/build-deps/sdl2-3ds-prefix
+fi
 SDL2_3DS=${SDL2_3DS:-$DEVKITPRO/portlibs/3ds}
 JOBS=${JOBS:-$(nproc)}
 COMMON="-DZMUSIC_FLUIDSYNTH=OFF -DHAVE_VULKAN=OFF -DHAVE_GLES2=OFF -DNO_OPENAL=ON"
@@ -33,11 +37,12 @@ fi
 cmake --build build-3ds -j"$JOBS"
 
 # 3. Package: engine data in the RomFS, without the CJK dynamic fonts (too large for the 3DS).
+rm -rf build-3ds/romfs
 mkdir -p build-3ds/romfs/data
 cp build-3ds/uzdoom.pk3 build-3ds/game_support.pk3 build-3ds/romfs/data/
 zip -q -d build-3ds/romfs/data/uzdoom.pk3 'fonts/dynamic/IBM_Plex_Sans_JP/*' 'fonts/dynamic/IBM_Plex_Sans_KR/*' \
 	'fonts/dynamic/Kosugi_Maru/*' 'fonts/dynamic/ZCOOLQingKeHaungYou/*' 'ui/*' || true
-"$DEVKITPRO/tools/bin/smdhtool" --create "UZDoom 3DS" "UZDoom for New 3DS (test build)" "AlexanderV387" \
+"$DEVKITPRO/tools/bin/smdhtool" --create "UZDoom 3DS" "${N3DS_SMDH_DESC:-UZDoom for New 3DS (test build)}" "AlexanderV387" \
 	platform/3ds/icon-48.png build-3ds/uzdoom.smdh
 "$DEVKITPRO/tools/bin/3dsxtool" build-3ds/uzdoom.elf build-3ds/uzdoom.3dsx --smdh=build-3ds/uzdoom.smdh --romfs=build-3ds/romfs
 ls -la build-3ds/uzdoom.3dsx
