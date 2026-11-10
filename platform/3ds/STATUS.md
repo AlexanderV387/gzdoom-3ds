@@ -19,15 +19,11 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 9. **La textura no es la causa:** sin textura (`c3d-notex.txt`), el dibujo se envía igual y la GPU se cuelga (prueba 25, pasada D, línea 50-53).
 10. **El problema no son los buffers del motor:** un triángulo mínimo con `DrawArrays`, vértices en memoria lineal y sin textura también cuelga la GPU (prueba 25, pasada C, línea 49-51). El shader del motor se usa en ambos casos.
 11. **El cuelgue depende del shader o de sus datos.** Con la configuración de `simple_tri` (shader distinto, matriz `Mtx_OrthoTilt`, vértices en coordenadas de pantalla con z=0.5, dos atributos fijos) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor y sus datos (matriz identidad, vértices en clip space con z=-0.5, tres atributos) la GPU se cuelga (prueba 26, log B). La pasada cambió shader, matriz, vértices y atributos a la vez: no se sabe cuál es la causa exacta. Los uniformes del shader del motor se cargaron correctamente (log A, línea 46: `DVLE=1 mvp=0 colorscale=4 colormul=5 texmat=6`).
+12. **El output de texcoord (`outtc0`) es la causa del cuelgue.** En la prueba 27, las variantes sin `outtc0` (V1, V3) funcionan y las que lo tienen (V0, V2) se cuelgan. Los datos del motor no son el problema (V4: shader simple_tri con datos del motor funciona). No son los 8 uniformes (V3 funciona). No es el `mul` del color (V2 lo quita pero se cuelga igual porque tiene `outtc0`).
 
 ## Pregunta abierta
 
-¿Qué aspecto del shader del motor o de sus datos causa el cuelgue? El test 26 cambió shader, matriz, vértices y atributos a la vez. Hay que separar:
-- ¿El **código** del shader del motor (sus instrucciones) es el problema?
-- ¿Los **datos** que se le pasan (matriz identidad, vértices en clip space, atributos)?
-- ¿Los **uniformes extra** (`colorscale`, `colormul`, `texmat[2]`)?
-- ¿Las **instrucciones extra** (dp4 para texcoords, mul para color)?
-- ¿El **output de texcoord** (`outtc0`)?
+¿Por qué el output de texcoord (`outtc0`) cuelga la GPU? ¿Es que el hardware de la Pica espera que si hay un output de texcoord haya una textura bindada en el tex env? ¿O es que las instrucciones `dp4` que escriben `outtc0` leen datos de `texmat` que no están bien alineados o no se han escrito correctamente? La prueba 28 lo aclarará.
 
 Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
@@ -39,9 +35,33 @@ Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorsc
 
 **Conclusión:** El problema es el shader del motor (`c3d_main.v.pica`) o cómo se configuran sus uniformes. El render target, la GPU y citro3d están sanos.
 
-## Prueba 27 (compilada, esperando logs)
+## Prueba 27 (hecha, 5 pasadas, logs analizados)
 
 **Pregunta:** ¿Qué aspecto concreto del shader del motor (código, instrucciones extra, output de texcoord, o datos) causa el cuelgue de GPU?
+
+**Resultado:**
+
+| Var | Shader | `outtc0` | mul | Uniformes | v27= | Log | Resultado |
+|-----|--------|----------|-----|-----------|------|-----|-----------|
+| V0 | c3d_main (full) | ✅ | ✅ | 8 | 0 | 70 líneas | ❌ HANG |
+| V1 | c3d_nouttc0 | ❌ | ✅ | 8 | 1 | 4630 líneas, frames 0-11 ok | ✅ OK |
+| V2 | c3d_nomul | ✅ | ❌ | 8 | 2 | 70 líneas | ❌ HANG |
+| V3 | c3d_intermed | ❌ | ❌ | 8 | 3 | 2386 líneas, frames 0-11 ok | ✅ OK |
+| V4 | simple_tri | ❌ | ❌ | 4 | 4 | 1400 líneas, frames 0-11 ok | ✅ OK |
+
+**Veredicto de hipótesis:**
+
+| Hipótesis | Resultado | Razón |
+|---|---|---|
+| H1: instrucciones extra | ✅ Confirmada (parcial) | V1 y V3 funcionan con menos instrucciones que V0. Pero V2 tiene igual instrucciones que V1 y se cuelga: no son las instrucciones en sí, sino cuáles. |
+| H2: `outtc0` es la causa | ✅✅ **Fuertemente confirmada** | V1 (sin outtc0) OK, V2 (con outtc0) HANG, V0 (con outtc0) HANG, V3 (sin outtc0) OK. Es la única variable que separa HANG de OK en todos los casos. |
+| H3: `mul` del color | ❌ Descartada | V2 quita el mul pero se cuelga (tiene outtc0). |
+| H4: 8 uniformes | ❌ Descartada | V3 tiene 8 uniformes y funciona. |
+| H5: datos del motor | ❌ Descartada | V4 usa datos del motor con shader simple_tri y funciona. |
+
+**Conclusión:** El output de coordenadas de textura (`outtc0`) es la causa del cuelgue. Cuando el shader escribe `outtc0`, la GPU se cuelga. Cuando no lo escribe, funciona.
+
+**Orientación del triángulo:** En la prueba 26 (simple_tri) el triángulo apuntaba hacia arriba porque usaba `Mtx_OrthoTilt` con coordenadas de pantalla (vértices en y=40-200, x=100-300). En la prueba 27 (V1-V4) apunta a la izquierda porque usa la matriz identidad con vértices en clip space (-0.5 a 0.5): el vértice superior está en (0, 0.5) y la base en (-0.5, -0.5) a (0.5, -0.5), que en pantalla se ve como un triángulo con la punta a la izquierda.
 
 **Lo que ya sabemos:**
 - Test 26, log A: `simple_tri` shader funciona (triángulo visible, 12 frames sin hang).
@@ -70,39 +90,14 @@ Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorsc
 
 **Hipótesis:**
 
-**H1: Es el código del shader (las instrucciones extra).**
-- V1 o V2 funcionan (sin hang), V0 no. V3 funciona.
-- V4: si funciona → los datos del motor no son el problema.
-
-**H2: Es el output de texcoord (`outtc0`).**
-- V1 funciona (sin `outtc0`), V0 no. V2 cuelga (tiene `outtc0`).
-- V3 funciona (sin `outtc0`).
-
-**H3: Es el `mul` para el color.**
-- V2 funciona (sin `mul`), V0 no. V1 cuelga (tiene `mul`).
-- V3 funciona (sin `mul`).
-
-**H4: Son los uniformes extra (8 fvecs vs 4).**
-- V3 cuelga (8 fvecs), V4 funciona (4 fvecs).
-
 **Autocomprobación (plantilla-prueba.md):**
 1. ¿Una sola pregunta? Sí: ¿qué aspecto del shader/datos causa el cuelgue?
 2. ¿Resultados distinguibles en el log? Sí: `GPU HANG` vs frames 0-11 `begin=ok`.
 3. ¿Una sola variable por paso? Sí (tabla de diferencias arriba).
-4. ¿Hipótesis con resultados distintos? Sí (H1-H4, tabla de veredicto abajo).
+4. ¿Hipótesis con resultados distintos? Sí (H1-H4).
 5. ¿El código no rompe el motor en PC? Sí, todo detrás de `#ifdef __3DS__` / diag switch.
 6. ¿La línea `Test:` del log dirá 27? Sí, `c3d_diag.cpp` la escribe con el número de prueba.
 7. ¿Los marcadores se quitan cuando la pregunta está respondida? Sí, al actualizar STATUS.md.
-
-**Tabla de veredicto (rellenar con los logs):**
-
-| Variante | H1 (instrucciones) | H2 (outtc0) | H3 (mul) | H4 (uniformes) |
-|---|---|---|---|---|
-| V0 HANG | ✅ baseline | ✅ baseline | ✅ baseline | ✅ baseline |
-| V1 ? | OK→✅ | HANG→✅ | OK→❌ | OK→? |
-| V2 ? | OK→✅ | OK→❌ | HANG→✅ | OK→? |
-| V3 ? | OK→✅ | OK→✅ | OK→✅ | HANG→✅ |
-| V4 ? | OK→✅ | OK→? | OK→? | OK→✅ |
 
 **Interruptores:** archivos vacíos `c3d-v0.txt` a `c3d-v4.txt` en `sdmc:/3ds/gzdoom/`, junto con `c3d-triangle.txt`.
 
@@ -126,6 +121,56 @@ Archivos nuevos:
 - `c3d_diag.h` / `c3d_diag.cpp`: `Test27Variant` (-1 a 4).
 - `c3d_framebuffer.cpp`: `DrawTestTriangle()` con ramas para V0-V4.
 
+## Prueba 28 (propuesta, sin compilar)
+
+**Pregunta:** ¿El cuelgue es por tener `outtc0` declarado como output del shader, o por escribirle valores calculados con `dp4`?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Test 27: sin `outtc0` (V1, V3) → OK. Con `outtc0` (V0, V2) → HANG.
+- Los datos del motor no son el problema (V4).
+- No son los 8 uniformes (V3).
+- No es el `mul` (V2).
+
+**Hipótesis A: Es el output `outtc0` en sí.** La Pica se cuelga cuando un shader declara `.out outtc0 texcoord0` pero no hay textura bindada en el tex env. Aunque no se escriba nada útil, el hecho de que el output exista es suficiente.
+- Si A es cierta: V0 (outtc0 = constante 0,0) se cuelga igual que V1 (dp4).
+
+**Hipótesis B: Son las instrucciones `dp4` que escriben `outtc0`.** Escriben valores calculados desde `texmat`, y algo en esa operación es lo que cuelga. Si se escribe un valor constante, funciona.
+- Si B es cierta: V0 (outtc0 = constante 0,0) funciona, V1 (dp4) se cuelga.
+
+**Hipótesis C: Es el par `outtc0` + tex env sin textura.** El shader declara `outtc0` y el tex env está configurado para usar texcoords (como en el motor real). Sin textura bindada, la Pica se cuelga. Si se binda una textura 1x1 de relleno, funciona.
+- Si C es cierta: V0 y V1 se cuelgan igual (ambos tienen outtc0 + tex env sin textura). Pero V2 (mismo shader + textura 1x1) funciona.
+
+**2 variantes (+ baseline):**
+
+| Var | Shader | `outtc0` | Textura bindada | ¿Qué prueba? |
+|---|---|---|---|---|
+| V0 | motor + `mov outtc0, (0,0,0,0)` | sí (constante) | no | ¿Es dp4 o es outtc0 en sí? |
+| V1 | motor (full, dp4) | sí (dp4) | no | Baseline: esperado HANG |
+| V2 | motor (full, dp4) | sí (dp4) | **sí** (1x1 blanca) | ¿Falta textura? |
+
+**Única variable que cambia:** En V0 solo cambia el cálculo de `outtc0` (dp4 → constante). En V2 solo cambia si hay textura bindada.
+
+**Pasadas en la consola:**
+
+| Pasada | Archivos de control | Qué mirar en pantalla |
+|---|---|---|
+| V0 | `c3d-triangle.txt` + `c3d-v0.txt` | Triángulo si funciona, negra si HANG |
+| V1 | `c3d-triangle.txt` + `c3d-v1.txt` | Negra (HANG baseline) |
+| V2 | `c3d-triangle.txt` + `c3d-v2.txt` | Triángulo si la textura arregla, negra si no |
+
+**Marcadores que se quedan:** los de `c3d_diag` para test 28. **Marcadores que se quitan:** los de test 27 (ya respondida).
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 28`.
+
+**Autocomprobación:**
+1. ¿Una sola pregunta? Sí: ¿por qué `outtc0` cuelga?
+2. ¿Resultados distinguibles? Sí: HANG (70 líneas) vs OK (frames 0-11 ok).
+3. ¿Una sola variable por paso? V0 vs V1: solo el cálculo de outtc0. V2 vs V1: solo la textura bindada.
+4. ¿Hipótesis con resultados distintos? A: V0 HANG, V2 HANG. B: V0 OK, V2 HANG. C: V0 HANG, V2 OK.
+5. ¿El código no rompe el motor en PC? Sí, detrás de `#ifdef __3DS__` / diag switch.
+6. ¿La línea `Test:` dirá 28? Sí.
+7. ¿Puede Alex preparar cada pasada sin equivocarse? Sí, archivos vacíos con nombres distintos.
+
 ## Registro de pruebas
 
 | Prueba | Pregunta | Resultado |
@@ -146,6 +191,7 @@ Archivos nuevos:
 | 24 | Buffer de comandos normal y limpieza | Log cortado en las fuentes; sin marcadores: no aporta |
 | 25 | ¿Qué parte del fotograma cuelga? | H1 confirmada (dibujo cuelga, pasada B). H3 descartada (sin textura igual cuelga, D). H4 descartada (triángulo mínimo cuelga, C). Causa: shader o estado compartido. |
 | 26 | ¿Shader del motor vs shader mínimo? | Shader del motor cuelga (log B). Shader mínimo funciona (log A). **El shader del motor es el culpable.** |
+| 27 | ¿Qué aspecto del shader/datos causa el cuelgue? | **`outtc0` es la causa.** V1 (sin outtc0) OK, V2 (con outtc0) HANG, V3 (sin outtc0) OK, V4 (datos del motor, sin outtc0) OK. H3 y H4 descartadas. |
 
 ## Pendientes que no son la pregunta abierta
 
