@@ -13,9 +13,7 @@
 #include "c3d_diag.h"
 #include "c3d_main_shbin.h"
 #include "c3d_simpletri_shbin.h"
-#include "c3d_nouttc0_shbin.h"
-#include "c3d_nomul_shbin.h"
-#include "c3d_intermed_shbin.h"
+#include "c3d_consttc_shbin.h"
 
 #include "flatvertices.h"
 #include "hw_skydome.h"
@@ -49,27 +47,17 @@ static int g_SimpletriUniform_projection;
 static C3D_Mtx g_SimpletriProjection;
 static float *g_SimpletriVertices;
 
-// Test 27: variant shaders to isolate what in the engine shader causes the GPU hang.
-static DVLB_s *g_Nouttc0DVLB;
-static shaderProgram_s g_Nouttc0Program;
-static int g_Nouttc0Uniform_mvp;
-static int g_Nouttc0Uniform_colorscale;
-static int g_Nouttc0Uniform_colormul;
-static int g_Nouttc0Uniform_texmat;
+// Test 28: variant shaders to isolate whether outtc0 itself, dp4, or missing texture causes the GPU hang.
+static DVLB_s *g_ConsttcDVLB;
+static shaderProgram_s g_ConsttcProgram;
+static int g_ConsttcUniform_mvp;
+static int g_ConsttcUniform_colorscale;
+static int g_ConsttcUniform_colormul;
+static int g_ConsttcUniform_texmat;
 
-static DVLB_s *g_NomulDVLB;
-static shaderProgram_s g_NomulProgram;
-static int g_NomulUniform_mvp;
-static int g_NomulUniform_colorscale;
-static int g_NomulUniform_colormul;
-static int g_NomulUniform_texmat;
-
-static DVLB_s *g_IntermedDVLB;
-static shaderProgram_s g_IntermedProgram;
-static int g_IntermedUniform_mvp;
-static int g_IntermedUniform_colorscale;
-static int g_IntermedUniform_colormul;
-static int g_IntermedUniform_texmat;
+// Test 28 V2: dummy 1x1 white texture for binding test.
+static C3D_Tex g_DummyTex;
+static bool g_DummyTexInit = false;
 
 C3DFrameBuffer *Get()
 {
@@ -141,24 +129,17 @@ C3DFrameBuffer::~C3DFrameBuffer()
 	C3D_Fini();
 	TheFrameBuffer = nullptr;
 
-	// Test 27: clean up variant shaders.
-	if (g_Nouttc0DVLB != nullptr)
+	// Test 28: clean up variant shaders.
+	if (g_ConsttcDVLB != nullptr)
 	{
-		shaderProgramFree(&g_Nouttc0Program);
-		DVLB_Free(g_Nouttc0DVLB);
-		g_Nouttc0DVLB = nullptr;
+		shaderProgramFree(&g_ConsttcProgram);
+		DVLB_Free(g_ConsttcDVLB);
+		g_ConsttcDVLB = nullptr;
 	}
-	if (g_NomulDVLB != nullptr)
+	if (g_DummyTexInit)
 	{
-		shaderProgramFree(&g_NomulProgram);
-		DVLB_Free(g_NomulDVLB);
-		g_NomulDVLB = nullptr;
-	}
-	if (g_IntermedDVLB != nullptr)
-	{
-		shaderProgramFree(&g_IntermedProgram);
-		DVLB_Free(g_IntermedDVLB);
-		g_IntermedDVLB = nullptr;
+		C3D_TexDelete(&g_DummyTex);
+		g_DummyTexInit = false;
 	}
 }
 
@@ -230,7 +211,7 @@ void C3DFrameBuffer::Draw2D()
 // the shader, the vertex loader, the combiners and the frame output work.
 static float *TriangleVertices;
 
-// Test 27: common GPU state setup for all variants.
+// Test 28: common GPU state setup for all variants.
 static void SetupCommonGPUState()
 {
 	C3D_SetViewport(0, 0, 240, 400);
@@ -248,7 +229,7 @@ static void SetupCommonGPUState()
 	}
 }
 
-// Test 27: set engine shader uniforms (identity matrix, neutral color scale/mul, identity texmat).
+// Test 28: set engine shader uniforms (identity matrix, neutral color scale/mul, identity texmat).
 static void SetEngineUniforms(int u_mvp, int u_colorscale, int u_colormul, int u_texmat)
 {
 	C3D_FVec *m = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, u_mvp, 4);
@@ -265,66 +246,38 @@ static void SetEngineUniforms(int u_mvp, int u_colorscale, int u_colormul, int u
 
 static void DrawTestTriangle()
 {
-	// Test 27: if a variant switch is present, use it.
-	if (Diag::Test27Variant >= 0)
+	// Test 28: if a variant switch is present, use it.
+	if (Diag::Test28Variant >= 0)
 	{
-		// Lazy init of all variant shaders.
-		if (g_Nouttc0DVLB == nullptr)
+		// Lazy init of consttc variant shader (V0).
+		if (g_ConsttcDVLB == nullptr)
 		{
-			// V1: nouttc0
-			g_Nouttc0DVLB = DVLB_ParseFile((u32 *)c3d_nouttc0_shbin, c3d_nouttc0_shbin_size);
-			shaderProgramInit(&g_Nouttc0Program);
-			shaderProgramSetVsh(&g_Nouttc0Program, &g_Nouttc0DVLB->DVLE[0]);
-			C3D_BindProgram(&g_Nouttc0Program);
-			g_Nouttc0Uniform_mvp = shaderInstanceGetUniformLocation(g_Nouttc0Program.vertexShader, "mvp");
-			g_Nouttc0Uniform_colorscale = shaderInstanceGetUniformLocation(g_Nouttc0Program.vertexShader, "colorscale");
-			g_Nouttc0Uniform_colormul = shaderInstanceGetUniformLocation(g_Nouttc0Program.vertexShader, "colormul");
-			g_Nouttc0Uniform_texmat = shaderInstanceGetUniformLocation(g_Nouttc0Program.vertexShader, "texmat");
-			Diag::Line("v1 nouttc0: DVLE=%d mvp=%d cs=%d cm=%d tm=%d",
-				g_Nouttc0DVLB->numDVLE, g_Nouttc0Uniform_mvp, g_Nouttc0Uniform_colorscale, g_Nouttc0Uniform_colormul, g_Nouttc0Uniform_texmat);
-		}
-		if (g_NomulDVLB == nullptr)
-		{
-			// V2: nomul
-			g_NomulDVLB = DVLB_ParseFile((u32 *)c3d_nomul_shbin, c3d_nomul_shbin_size);
-			shaderProgramInit(&g_NomulProgram);
-			shaderProgramSetVsh(&g_NomulProgram, &g_NomulDVLB->DVLE[0]);
-			C3D_BindProgram(&g_NomulProgram);
-			g_NomulUniform_mvp = shaderInstanceGetUniformLocation(g_NomulProgram.vertexShader, "mvp");
-			g_NomulUniform_colorscale = shaderInstanceGetUniformLocation(g_NomulProgram.vertexShader, "colorscale");
-			g_NomulUniform_colormul = shaderInstanceGetUniformLocation(g_NomulProgram.vertexShader, "colormul");
-			g_NomulUniform_texmat = shaderInstanceGetUniformLocation(g_NomulProgram.vertexShader, "texmat");
-			Diag::Line("v2 nomul: DVLE=%d mvp=%d cs=%d cm=%d tm=%d",
-				g_NomulDVLB->numDVLE, g_NomulUniform_mvp, g_NomulUniform_colorscale, g_NomulUniform_colormul, g_NomulUniform_texmat);
-		}
-		if (g_IntermedDVLB == nullptr)
-		{
-			// V3: intermed
-			g_IntermedDVLB = DVLB_ParseFile((u32 *)c3d_intermed_shbin, c3d_intermed_shbin_size);
-			shaderProgramInit(&g_IntermedProgram);
-			shaderProgramSetVsh(&g_IntermedProgram, &g_IntermedDVLB->DVLE[0]);
-			C3D_BindProgram(&g_IntermedProgram);
-			g_IntermedUniform_mvp = shaderInstanceGetUniformLocation(g_IntermedProgram.vertexShader, "mvp");
-			g_IntermedUniform_colorscale = shaderInstanceGetUniformLocation(g_IntermedProgram.vertexShader, "colorscale");
-			g_IntermedUniform_colormul = shaderInstanceGetUniformLocation(g_IntermedProgram.vertexShader, "colormul");
-			g_IntermedUniform_texmat = shaderInstanceGetUniformLocation(g_IntermedProgram.vertexShader, "texmat");
-			Diag::Line("v3 intermed: DVLE=%d mvp=%d cs=%d cm=%d tm=%d",
-				g_IntermedDVLB->numDVLE, g_IntermedUniform_mvp, g_IntermedUniform_colorscale, g_IntermedUniform_colormul, g_IntermedUniform_texmat);
-		}
-		if (g_SimpletriDVLB == nullptr)
-		{
-			// V4: simple_tri with engine data
-			g_SimpletriDVLB = DVLB_ParseFile((u32 *)c3d_simpletri_shbin, c3d_simpletri_shbin_size);
-			shaderProgramInit(&g_SimpletriProgram);
-			shaderProgramSetVsh(&g_SimpletriProgram, &g_SimpletriDVLB->DVLE[0]);
-			C3D_BindProgram(&g_SimpletriProgram);
-			g_SimpletriUniform_projection = shaderInstanceGetUniformLocation(g_SimpletriProgram.vertexShader, "projection");
-			Diag::Line("v4 simpletri: DVLE=%d projection=%d",
-				g_SimpletriDVLB->numDVLE, g_SimpletriUniform_projection);
+			g_ConsttcDVLB = DVLB_ParseFile((u32 *)c3d_consttc_shbin, c3d_consttc_shbin_size);
+			shaderProgramInit(&g_ConsttcProgram);
+			shaderProgramSetVsh(&g_ConsttcProgram, &g_ConsttcDVLB->DVLE[0]);
+			C3D_BindProgram(&g_ConsttcProgram);
+			g_ConsttcUniform_mvp = shaderInstanceGetUniformLocation(g_ConsttcProgram.vertexShader, "mvp");
+			g_ConsttcUniform_colorscale = shaderInstanceGetUniformLocation(g_ConsttcProgram.vertexShader, "colorscale");
+			g_ConsttcUniform_colormul = shaderInstanceGetUniformLocation(g_ConsttcProgram.vertexShader, "colormul");
+			g_ConsttcUniform_texmat = shaderInstanceGetUniformLocation(g_ConsttcProgram.vertexShader, "texmat");
+			Diag::Line("v0 consttc: DVLE=%d mvp=%d cs=%d cm=%d tm=%d",
+				g_ConsttcDVLB->numDVLE, g_ConsttcUniform_mvp, g_ConsttcUniform_colorscale, g_ConsttcUniform_colormul, g_ConsttcUniform_texmat);
 		}
 
-		int variant = Diag::Test27Variant;
-		Diag::Line("test27 variant=%d", variant);
+		// Lazy init of dummy 1x1 white texture (V2).
+		if (!g_DummyTexInit)
+		{
+			uint8_t pix[4] = { 255, 255, 255, 255 };
+			C3D_TexInit(&g_DummyTex, 1, 1, GPU_RGBA8);
+			C3D_TexSetFilter(&g_DummyTex, GPU_LINEAR, GPU_LINEAR);
+			C3D_TexSetWrap(&g_DummyTex, GPU_REPEAT, GPU_REPEAT);
+			C3D_TexUpload(&g_DummyTex, pix);
+			g_DummyTexInit = true;
+			Diag::Line("v2 dummy tex: init ok");
+		}
+
+		int variant = Diag::Test28Variant;
+		Diag::Line("test28 variant=%d", variant);
 
 		// Init triangle vertices (engine data: clip space, z=-0.5).
 		if (TriangleVertices == nullptr)
@@ -337,71 +290,42 @@ static void DrawTestTriangle()
 
 		SetupCommonGPUState();
 
-		if (variant == 4)
-		{
-			// V4: simple_tri shader with engine data.
-			// simple_tri reads color from v1 (inclr alias). Engine data uses identity matrix via mvp uniform.
-			C3D_BindProgram(&g_SimpletriProgram);
-
-			// Set identity matrix as projection (simple_tri's uniform).
-			Mtx_Identity(&g_SimpletriProjection);
-			C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_SimpletriUniform_projection, &g_SimpletriProjection);
-
-			// Engine vertices (clip space z=-0.5) on v0, color red on v1 (simple_tri reads from v1).
-			C3D_AttrInfo *ai = C3D_GetAttrInfo();
-			AttrInfo_Init(ai);
-			AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 3);
-			C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 1, 0, 0, 1);	// v1: red
-			C3D_BufInfo *bi = C3D_GetBufInfo();
-			BufInfo_Init(bi);
-			BufInfo_Add(bi, TriangleVertices, 3 * sizeof(float), 1, 0x0);
-			C3D_DrawArrays(GPU_TRIANGLES, 0, 3);
-			Diag::Draw(false, true);
-			return;
-		}
-
-		// V0-V3: engine-family shaders with engine data.
 		shaderProgram_s *prog = nullptr;
 		int u_mvp = -1, u_cs = -1, u_cm = -1, u_tm = -1;
-		int n_attr = 3;	// V0, V2: 3 attrs (pos, tex, color). V1, V3: 2 attrs (pos, color).
 
 		if (variant == 0)
 		{
+			// V0: consttc shader (outtc0 = constant 0,0,0,0 instead of dp4).
+			prog = &g_ConsttcProgram;
+			u_mvp = g_ConsttcUniform_mvp; u_cs = g_ConsttcUniform_colorscale;
+			u_cm = g_ConsttcUniform_colormul; u_tm = g_ConsttcUniform_texmat;
+		}
+		else
+		{
+			// V1 (baseline) and V2: engine shader with dp4.
 			prog = &ShaderProgram;
-			u_mvp = Uniforms.mvp; u_cs = Uniforms.colorscale; u_cm = Uniforms.colormul; u_tm = Uniforms.texmat;
-			n_attr = 3;
-		}
-		else if (variant == 1)
-		{
-			prog = &g_Nouttc0Program;
-			u_mvp = g_Nouttc0Uniform_mvp; u_cs = g_Nouttc0Uniform_colorscale;
-			u_cm = g_Nouttc0Uniform_colormul; u_tm = g_Nouttc0Uniform_texmat;
-			n_attr = 2;	// no texcoord
-		}
-		else if (variant == 2)
-		{
-			prog = &g_NomulProgram;
-			u_mvp = g_NomulUniform_mvp; u_cs = g_NomulUniform_colorscale;
-			u_cm = g_NomulUniform_colormul; u_tm = g_NomulUniform_texmat;
-			n_attr = 3;
-		}
-		else if (variant == 3)
-		{
-			prog = &g_IntermedProgram;
-			u_mvp = g_IntermedUniform_mvp; u_cs = g_IntermedUniform_colorscale;
-			u_cm = g_IntermedUniform_colormul; u_tm = g_IntermedUniform_texmat;
-			n_attr = 2;	// no texcoord
+			u_mvp = Uniforms.mvp; u_cs = Uniforms.colorscale;
+			u_cm = Uniforms.colormul; u_tm = Uniforms.texmat;
 		}
 
 		C3D_BindProgram(prog);
 		SetEngineUniforms(u_mvp, u_cs, u_cm, u_tm);
 
+		if (variant == 2)
+		{
+			// V2: bind dummy 1x1 white texture on unit 0.
+			C3D_TexEnv *env = C3D_GetTexEnv(0);
+			C3D_TexEnvInit(env);
+			C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
+			C3D_TexBind(0, &g_DummyTex);
+			Diag::Line("v2: dummy texture bound on unit 0");
+		}
+
 		C3D_AttrInfo *ai = C3D_GetAttrInfo();
 		AttrInfo_Init(ai);
 		AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 3);		// v0: position
-		if (n_attr >= 3)
-			C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 0, 0, 0, 0);	// v1: texcoord
-		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 2), 1, 0, 0, 1);		// v2: red (all engine-family shaders read color from v2)
+		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 0, 0, 0, 0);	// v1: texcoord
+		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 2), 1, 0, 0, 1);	// v2: red
 		C3D_BufInfo *bi = C3D_GetBufInfo();
 		BufInfo_Init(bi);
 		BufInfo_Add(bi, TriangleVertices, 3 * sizeof(float), 1, 0x0);

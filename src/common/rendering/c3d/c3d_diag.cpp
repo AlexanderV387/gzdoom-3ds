@@ -21,7 +21,7 @@ bool NoDraw = false;
 bool NoTex = false;
 bool Triangle = false;
 bool MinimalShader = false;
-int Test27Variant = -1;
+int Test28Variant = -1;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -63,12 +63,10 @@ void Init()
 	NoTex = Exists("c3d-notex.txt");
 	Triangle = Exists("c3d-triangle.txt");
 	MinimalShader = Exists("c3d-minimal-shader.txt");
-	if (Exists("c3d-v0.txt")) Test27Variant = 0;
-	else if (Exists("c3d-v1.txt")) Test27Variant = 1;
-	else if (Exists("c3d-v2.txt")) Test27Variant = 2;
-	else if (Exists("c3d-v3.txt")) Test27Variant = 3;
-	else if (Exists("c3d-v4.txt")) Test27Variant = 4;
-	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d v27=%d", NoDraw, NoTex, Triangle, MinimalShader, Test27Variant);
+	if (Exists("c3d-v0.txt")) Test28Variant = 0;
+	else if (Exists("c3d-v1.txt")) Test28Variant = 1;
+	else if (Exists("c3d-v2.txt")) Test28Variant = 2;
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d v28=%d", NoDraw, NoTex, Triangle, MinimalShader, Test28Variant);
 }
 
 bool HangReported()

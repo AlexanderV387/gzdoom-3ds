@@ -1,0 +1,43 @@
+; c3d_consttc.v.pica
+; Test 28 variant V0: identical to c3d_main.v.pica but replaces the two dp4
+; instructions for outtc0 with a constant (0,0,0,0). If this still hangs,
+; the mere declaration of outtc0 is the problem. If it works, it is the dp4
+; instructions (or what they write) that cause the hang.
+;
+; 2026 AlexanderV387 (Nintendo 3DS port). GPL v3 (see LICENSE).
+
+.fvec mvp[4]
+.fvec colorscale	; multiplies the color: 1/255 for bytes, 1 for floats
+.fvec colormul		; the render state's light/vertex color for buffers with colors
+.fvec texmat[2]		; texture matrix rows (s, t), identity when unused
+
+.constf ones(1.0, 1.0, 1.0, 1.0)
+.constf zeros(0.0, 0.0, 0.0, 0.0)
+
+.out outpos position
+.out outtc0 texcoord0
+.out outcol color
+
+.alias inpos v0
+.alias intex v1
+.alias incol v2
+
+.proc main
+	mov r0.xyz, inpos
+	mov r0.w, ones
+
+	dp4 outpos.x, mvp[0], r0
+	dp4 outpos.y, mvp[1], r0
+	dp4 outpos.z, mvp[2], r0
+	dp4 outpos.w, mvp[3], r0
+
+	; TEST 28 V0: constant texcoord instead of dp4 through texmat.
+	; If this still hangs, outtc0 itself is the problem.
+	mov outtc0, zeros
+
+	; The 2D drawer has already turned its colors into R, G, B, A.
+	mul r1, colorscale, incol
+	mul outcol, colormul, r1
+
+	end
+.end
