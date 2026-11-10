@@ -467,7 +467,8 @@ elseif( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
 		common/rendering/c3d/c3d_buffers.cpp
 		common/rendering/c3d/c3d_hwtexture.cpp
 		common/rendering/c3d/c3d_renderstate.cpp
-		common/rendering/c3d/c3d_framebuffer.cpp )
+		common/rendering/c3d/c3d_framebuffer.cpp
+		common/rendering/c3d/c3d_diag.cpp )
 	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} ${PLAT_UNIX_SOURCES} )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)

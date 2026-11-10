@@ -26,6 +26,4 @@ void DeferLinearFree(void *ptr);
 void DeferTexDelete(const C3D_Tex &tex);
 void RunDeferredFrees();
 
-
-
-} // namespace C3DRenderer
+}

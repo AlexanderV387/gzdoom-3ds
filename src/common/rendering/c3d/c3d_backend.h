@@ -164,6 +164,7 @@ private:
 	void ApplyCombiners(bool textured, int texMode);
 	void ApplyMatrices();
 	bool SetupAttributes(int baseVertex);
+	void DescribeDraw(const char *kind, int dt, int first, int count, const void *vertices, const void *indices);
 
 	// Device state that FRenderState does not hold.
 	bool mDepthTest = false;
@@ -217,16 +218,12 @@ public:
 
 	void ScreenBegin();	// starts the citro3d frame if needed
 	C3D_RenderTarget *Target() { return mTop; }
-	#ifdef __3DS__
-	bool IsFrameBlocked() const { return mFrameBlocked; }
-	#endif
+	bool IsFrameBlocked() const { return mFrameBlocked; }	// no citro3d frame this time
 
 private:
 	C3D_RenderTarget *mTop = nullptr;
 	bool mFrameStarted = false;
-	#ifdef __3DS__
 	bool mFrameBlocked = false;
-	#endif
 };
 
 C3DFrameBuffer *Get();

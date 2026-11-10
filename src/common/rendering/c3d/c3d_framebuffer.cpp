@@ -10,6 +10,7 @@
 
 #include "c3d_backend.h"
 #include "c3d_internal.h"
+#include "c3d_diag.h"
 #include "c3d_main_shbin.h"
 
 #include "flatvertices.h"
@@ -118,37 +119,29 @@ void C3DFrameBuffer::InitializeState()
 	mBones = new BoneBuffer(mPipelineNbr);
 
 	Printf("C3D: backend ready, %u KB of linear memory free\n", (unsigned)(linearSpaceFree() / 1024));
+	Diag::Init();
 }
 
 void C3DFrameBuffer::ScreenBegin()
 {
-	if (mFrameStarted) return;
-	#ifdef __3DS__
-	if (mFrameBlocked) return;
-	#endif
+	if (mFrameStarted || mFrameBlocked) return;
 
-	// Try to start a frame. If it fails, retry with vblank waits up to ~2 seconds.
+	// The previous frame's GPU work must have finished. A healthy GPU needs far less than a
+	// frame for it; waiting up to 120 vblanks (2 s) tells a slow frame from a hung GPU. Once
+	// the hang is reported, one retry per frame is enough.
 	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
-	#ifdef __3DS__
-	if (!ok)
+	int retries = 0;
+	const int maxRetries = Diag::HangReported() ? 1 : 120;
+	while (!ok && retries < maxRetries)
 	{
-		for (int i = 0; i < 120; i++)
-		{
-			gspWaitForVBlank();
-			ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
-			if (ok) break;
-		}
-		if (!ok)
-		{
-			mFrameBlocked = true;
-			return;
-		}
+		gspWaitForVBlank();
+		retries++;
+		ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
 	}
-	#endif
-
+	Diag::FrameBegun(ok, retries);
 	if (!ok)
 	{
-		mFrameBlocked = true;
+		mFrameBlocked = true;	// this frame draws nothing; Update() clears it for the next one
 		return;
 	}
 	RunDeferredFrees();
@@ -163,41 +156,85 @@ void C3DFrameBuffer::BeginFrame()
 	mViewpoints->Clear();
 	TheRenderState->BeginFrame();
 	ScreenBegin();
-	#ifdef __3DS__
-	if (mFrameBlocked)
-	{
-		return;
-	}
-	#endif
 }
 
 void C3DFrameBuffer::Draw2D()
 {
 	ScreenBegin();
-	#ifdef __3DS__
-	if (mFrameBlocked) return;
-	#endif
+	if (mFrameBlocked || Diag::Triangle) return;
 	::Draw2D(twod, *TheRenderState);
+}
+
+// c3d-triangle.txt: one red triangle in clip space, with nothing of the engine's: if this shows,
+// the shader, the vertex loader, the combiners and the frame output work.
+static float *TriangleVertices;
+
+static void DrawTestTriangle()
+{
+	if (TriangleVertices == nullptr)
+	{
+		static const float v[9] = { -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.f, 0.5f, -0.5f };
+		TriangleVertices = (float *)linearAlloc(sizeof(v));
+		memcpy(TriangleVertices, v, sizeof(v));
+		GSPGPU_FlushDataCache(TriangleVertices, sizeof(v));
+	}
+	C3D_SetViewport(0, 0, 240, 400);
+	C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+	C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+	C3D_AlphaTest(false, GPU_ALWAYS, 0);
+	C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+	C3D_CullFace(GPU_CULL_NONE);
+	C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+	for (int i = 0; i < 6; i++)
+	{
+		C3D_TexEnv *env = C3D_GetTexEnv(i);
+		C3D_TexEnvInit(env);
+		if (i == 0) C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
+	}
+
+	C3D_FVec *m = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.mvp, 4);
+	m[0] = FVec4_New(1, 0, 0, 0);
+	m[1] = FVec4_New(0, 1, 0, 0);
+	m[2] = FVec4_New(0, 0, 1, 0);
+	m[3] = FVec4_New(0, 0, 0, 1);
+	*C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colorscale, 1) = FVec4_New(1, 1, 1, 1);
+	*C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colormul, 1) = FVec4_New(1, 1, 1, 1);
+	C3D_FVec *t = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.texmat, 2);
+	t[0] = FVec4_New(1, 0, 0, 0);
+	t[1] = FVec4_New(0, 1, 0, 0);
+
+	C3D_AttrInfo *ai = C3D_GetAttrInfo();
+	AttrInfo_Init(ai);
+	AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 3);			// v0: position
+	C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 0, 0, 0, 0);	// v1: texture coordinates
+	C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 2), 1, 0, 0, 1);	// v2: red
+	C3D_BufInfo *bi = C3D_GetBufInfo();
+	BufInfo_Init(bi);
+	BufInfo_Add(bi, TriangleVertices, 3 * sizeof(float), 1, 0x0);
+	C3D_DrawArrays(GPU_TRIANGLES, 0, 3);
+	Diag::Draw(false, true);
 }
 
 void C3DFrameBuffer::Update()
 {
 	ScreenBegin();
-	#ifdef __3DS__
 	if (mFrameBlocked)
 	{
+		// No frame could be started: drop this frame's 2D and try again on the next one.
 		twod->Clear();
 		TheRenderState->ResetDeviceState();
 		TheRenderState->BeginFrame();
+		Diag::FrameDone(false);
 		Super::Update();
 		mFrameBlocked = false;
 		return;
 	}
-	#endif
-	Draw2D();		// everything 2D still pending (menus, HUD, console, title)
+	if (Diag::Triangle) DrawTestTriangle();
+	else Draw2D();	// everything 2D still pending (menus, HUD, console, title)
 	twod->Clear();
 	C3D_FrameEnd(0);
 	mFrameStarted = false;
+	Diag::FrameDone(true);
 	TheRenderState->ResetDeviceState();
 	TheRenderState->BeginFrame();
 	Super::Update();

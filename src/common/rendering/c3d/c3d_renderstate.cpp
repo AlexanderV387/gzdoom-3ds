@@ -8,10 +8,10 @@
 
 #include <string.h>
 #include <algorithm>
-#include <string>
 
 #include "c3d_backend.h"
 #include "c3d_internal.h"
+#include "c3d_diag.h"
 #include "hw_material.h"
 #include "texturemanager.h"
 #include "printf.h"
@@ -27,7 +27,9 @@ static const size_t IndexRingSize = 512 * 1024;	// indices per frame
 
 static bool WarnedLines = false;
 
-
+// What SetupAttributes gave the GPU for the last draw (for the diagnostics).
+static uint64_t LastPermutation;
+static int LastAttribCount, LastBufResult;
 
 void C3DRenderState::BeginFrame()
 {
@@ -106,9 +108,7 @@ void C3DRenderState::EnableDepthTest(bool on)
 void C3DRenderState::SetScissor(int x, int y, int w, int h)
 {
 	Get()->ScreenBegin();
-	#ifdef __3DS__
 	if (Get()->IsFrameBlocked()) return;
-	#endif
 	if (w < 0)
 	{
 		C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
@@ -123,9 +123,7 @@ void C3DRenderState::SetScissor(int x, int y, int w, int h)
 void C3DRenderState::SetViewport(int x, int y, int w, int h)
 {
 	Get()->ScreenBegin();
-	#ifdef __3DS__
 	if (Get()->IsFrameBlocked()) return;
-	#endif
 	const int W = Get()->GetClientWidth();
 	C3D_SetViewport(y, W - x - w, h, w);
 }
@@ -133,9 +131,7 @@ void C3DRenderState::SetViewport(int x, int y, int w, int h)
 void C3DRenderState::Clear(int targets)
 {
 	Get()->ScreenBegin();
-	#ifdef __3DS__
 	if (Get()->IsFrameBlocked()) return;
-	#endif
 	C3D_ClearBits bits = (C3D_ClearBits)0;
 	if (targets & CT_Color) bits = (C3D_ClearBits)(bits | C3D_CLEAR_COLOR);
 	if (targets & (CT_Depth | CT_Stencil)) bits = (C3D_ClearBits)(bits | C3D_CLEAR_DEPTH);
@@ -470,14 +466,11 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	}
 
 	uint8_t *base = (uint8_t *)vb->Memory() + size_t(baseVertex) * vb->mStride;
-	int bufInfoResult = BufInfo_Add(bi, base, vb->mStride, count, permutation);
-
-
-	if (bufInfoResult < 0)
-	{
-		return false;
-	}
-	return true;
+	const int bufInfoResult = BufInfo_Add(bi, base, vb->mStride, count, permutation);
+	LastPermutation = permutation;
+	LastAttribCount = count;
+	LastBufResult = bufInfoResult;
+	return bufInfoResult >= 0;	// -2: the vertices are not in memory the GPU can read
 }
 
 //==========================================================================
@@ -489,14 +482,12 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 bool C3DRenderState::Apply(int dt)
 {
 	Get()->ScreenBegin();
-	#ifdef __3DS__
 	if (Get()->IsFrameBlocked()) return false;
-	#endif
 
 	if (mMaterial.mChanged) ApplyMaterial();
 	ApplyBlendMode();
 
-	const bool textured = mTextureEnabled && mBoundTexture != nullptr && mBoundTexture->GetTex() != nullptr;
+	const bool textured = mTextureEnabled && mBoundTexture != nullptr && mBoundTexture->GetTex() != nullptr && !Diag::NoTex;
 	if (textured) C3D_TexBind(0, mBoundTexture->GetTex());
 
 	int texMode = mTextureMode;
@@ -538,6 +529,24 @@ static GPU_Primitive_t Primitive(int dt)
 	}
 }
 
+// The first draws in full: what the GPU is asked to read (diagnostics, see c3d_diag.h).
+void C3DRenderState::DescribeDraw(const char *kind, int dt, int first, int count, const void *vertices, const void *indices)
+{
+	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
+	char attrs[160] = "";
+	size_t len = 0;
+	for (auto &a : vb->mAttributes)
+		len += snprintf(attrs + len, len < sizeof(attrs) ? sizeof(attrs) - len : 0, "%s%d:%d@%d", len ? "," : "", a.location, a.format, a.offset);
+	const bool textured = mTextureEnabled && mBoundTexture != nullptr && mBoundTexture->GetTex() != nullptr && !Diag::NoTex;
+	C3D_Tex *tex = textured ? mBoundTexture->GetTex() : nullptr;
+	Diag::Line("draw %s prim=%d first=%d count=%d stride=%d attrs=[%s] perm=%llx n=%d buf=%d "
+		"vtx_pa=%08lx idx_pa=%08lx tex=%dx%d fmt=%d mode=%d blend=%d/%d/%d alpha=%.2f depth=%d stencil=%d",
+		kind, dt, first, count, (int)vb->mStride, attrs, (unsigned long long)LastPermutation, LastAttribCount, LastBufResult,
+		(unsigned long)osConvertVirtToPhys(vertices), (unsigned long)(indices ? osConvertVirtToPhys(indices) : 0),
+		tex ? tex->width : 0, tex ? tex->height : 0, tex ? (int)tex->fmt : -1, mTextureMode,
+		mRenderStyle.BlendOp, mRenderStyle.SrcAlpha, mRenderStyle.DestAlpha, mAlphaThreshold, mDepthTest, mStencilEnabled);
+}
+
 void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 {
 	if (dt == DT_Lines || dt == DT_Points)
@@ -549,9 +558,13 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 	if (!SetupAttributes(mVertexOffsets[0])) return;
 
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
+	uint8_t *first = (uint8_t *)vb->Memory() + size_t(mVertexOffsets[0] + index) * vb->mStride;
+	GSPGPU_FlushDataCache(first, size_t(count) * vb->mStride);
 
-	GSPGPU_FlushDataCache((uint8_t *)vb->Memory() + size_t(mVertexOffsets[0] + index) * vb->mStride, size_t(count) * vb->mStride);
-	C3D_DrawArrays(Primitive(dt), index, count);
+	const bool send = !Diag::NoDraw && !Diag::Triangle;
+	if (Diag::WantDrawDetails()) DescribeDraw(send ? "arrays" : "arrays(not sent)", dt, index, count, first, nullptr);
+	Diag::Draw(false, send);
+	if (send) C3D_DrawArrays(Primitive(dt), index, count);
 }
 
 void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
@@ -571,14 +584,17 @@ void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 	if (!SetupAttributes(base)) return;
 
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
-
 	uint16_t *dst = IndexRing + IndexRingPos;
 	for (int i = 0; i < count; i++) dst[i] = uint16_t(src[i] - lo);
 	IndexRingPos += (count + 1) & ~1;	// keep the next block 4-byte aligned
 	GSPGPU_FlushDataCache(dst, count * sizeof(uint16_t));
+	uint8_t *first = (uint8_t *)vb->Memory() + size_t(base) * vb->mStride;
+	GSPGPU_FlushDataCache(first, size_t(hi - lo + 1) * vb->mStride);
 
-	GSPGPU_FlushDataCache((uint8_t *)vb->Memory() + size_t(base) * vb->mStride, size_t(hi - lo + 1) * vb->mStride);
-	C3D_DrawElements(Primitive(dt), count, C3D_UNSIGNED_SHORT, dst);
+	const bool send = !Diag::NoDraw && !Diag::Triangle;
+	if (Diag::WantDrawDetails()) DescribeDraw(send ? "elements" : "elements(not sent)", dt, int(lo), count, first, dst);
+	Diag::Draw(true, send);
+	if (send) C3D_DrawElements(Primitive(dt), count, C3D_UNSIGNED_SHORT, dst);
 }
 
 } // namespace C3DRenderer
