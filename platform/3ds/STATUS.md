@@ -20,12 +20,129 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 10. **El problema no son los buffers del motor:** un triángulo mínimo con `DrawArrays`, vértices en memoria lineal y sin textura también cuelga la GPU (prueba 25, pasada C, línea 49-51). El shader del motor se usa en ambos casos.
 11. **El cuelgue depende del shader o de sus datos.** Con la configuración de `simple_tri` (shader distinto, matriz `Mtx_OrthoTilt`, vértices en coordenadas de pantalla con z=0.5, dos atributos fijos) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor y sus datos (matriz identidad, vértices en clip space con z=-0.5, tres atributos) la GPU se cuelga (prueba 26, log B). La pasada cambió shader, matriz, vértices y atributos a la vez: no se sabe cuál es la causa exacta. Los uniformes del shader del motor se cargaron correctamente (log A, línea 46: `DVLE=1 mvp=0 colorscale=4 colormul=5 texmat=6`).
 12. **El output de texcoord (`outtc0`) es la causa del cuelgue.** En la prueba 27, las variantes sin `outtc0` (V1, V3) funcionan y las que lo tienen (V0, V2) se cuelgan. Los datos del motor no son el problema (V4: shader simple_tri con datos del motor funciona). No son los 8 uniformes (V3 funciona). No es el `mul` del color (V2 lo quita pero se cuelga igual porque tiene `outtc0`).
+13. **Las instrucciones `dp4` que leen `texmat` y escriben `outtc0` son la causa específica.** No es la declaración de `outtc0` (prueba 28 V0 con constante funciona), ni la falta de textura (V2 con textura se cuelga igual). Específicamente, `dp4 outtc0.x, texmat[0], r2` y `dp4 outtc0.y, texmat[1], r2` (c3d_main.v.pica líneas 36-37) cuelgan la GPU (prueba 28).
+
+## Prueba 28 (hecha, 3 pasadas, logs analizados)
+
+**Pregunta:** ¿El cuelgue es por tener `outtc0` declarado como output del shader, o por escribirle valores calculados con `dp4`?
+
+**Resultado:**
+
+| Var | Shader | `outtc0` | Textura | v28= | Log | Resultado |
+|-----|--------|----------|---------|------|-----|-----------|
+| V0 | consttc (mov constante) | sí (0,0,0,0) | no | 0 | 1749 líneas, frames 0-11 ok | ✅ OK |
+| V1 | c3d_main (full, dp4) | sí (dp4) | no | 1 | 68 líneas, HANG frame 1 | ❌ HANG |
+| V2 | c3d_main (full, dp4) | sí (dp4) | **sí** (1x1) | 2 | 69 líneas, HANG frame 1 | ❌ HANG |
+
+**Veredicto de hipótesis:**
+
+| Hipótesis | Resultado | Razón |
+|---|---|---|
+| A: `outtc0` en sí es el problema | ❌ Descartada | V0 tiene `outtc0` declarado y funciona. |
+| B: `dp4` escribiendo `outtc0` es el problema | ✅✅ **Confirmada** | V0 (sin dp4, constante) OK. V1 (con dp4) HANG. V2 (con dp4 + textura) HANG. |
+| C: `outtc0` + tex env sin textura | ❌ Descartada | V2 tiene textura bindada y se cuelga igual. |
+
+**Conclusión:** Las instrucciones `dp4` que leen el uniform `texmat` y escriben `outtc0` son la causa del cuelgue. No es la declaración de `outtc0` ni la falta de textura. Específicamente, `dp4 outtc0.x, texmat[0], r2` y `dp4 outtc0.y, texmat[1], r2` (c3d_main.v.pica líneas 36-37) cuelgan la GPU.
+
+**Orientación del triángulo:** V0: triángulo apuntando a la izquierda (matriz identidad, clip space). V1/V2: pantalla negra (HANG).
+
+**Lo que ya sabemos:**
+- Test 27: `outtc0` es la causa del cuelgue.
+- Test 28 V0: `outtc0` declarado pero con valor constante → funciona. El problema no es la declaración.
+- Test 28 V1: `dp4` con `texmat` → HANG.
+- Test 28 V2: `dp4` con `texmat` + textura dummy → HANG. El problema no es la falta de textura.
+- Los uniformes se setean en `SetEngineUniforms()` (c3d_framebuffer.cpp líneas 233-245): `texmat` es identity rows `(1,0,0,0)` y `(0,1,0,0)`.
+- El input attribute `intex` (v1) está fijo a `(0,0,0,0)` (c3d_framebuffer.cpp línea 327).
 
 ## Pregunta abierta
 
-¿Por qué el output de texcoord (`outtc0`) cuelga la GPU? ¿Es que el hardware de la Pica espera que si hay un output de texcoord haya una textura bindada en el tex env? ¿O es que las instrucciones `dp4` que escriben `outtc0` leen datos de `texmat` que no están bien alineados o no se han escrito correctamente? La prueba 28 lo aclarará.
+¿Por qué `dp4 outtc0.x, texmat[0], r2` cuelga la GPU cuando el mismo patrón funciona en el ejemplo de citro3d? La diferencia es que citro3d usa el atributo de entrada directamente (`dp4 outtc0.x, texView[0], intex`) mientras que nosotros pasamos por un registro temporal (`mov r2.xy, intex; mov r2.zw, ones; dp4 outtc0.x, texmat[0], r2`). La prueba 29 lo aclarará aplicando el arreglo.
 
-Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
+Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
+
+## Prueba 29 (propuesta, con arreglo)
+
+**Pregunta:** ¿Usar `intex` directamente en `dp4` (como hace citro3d) en vez de pasarlo por `r2` evita el cuelgue y permite que aparezca la pantalla de título?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Test 28: `dp4` escribiendo `outtc0` es la causa (hipótesis B confirmada).
+- `mov outtc0, constante` funciona (V0). No es la declaración de `outtc0`.
+- Bindar una textura dummy no ayuda (V2). No es falta de textura.
+- El ejemplo de citro3d (`~/work/refs/citro3d/test/3ds/source/vshader.v.pica`, líneas 44-45) usa `dp4 outtc0.x, texView[0], intex` y funciona.
+- La diferencia: citro3d pasa `intex` directamente a `dp4`; nuestro shader (`c3d_main.v.pica`, líneas 34-37) lo pasa por `r2` (`mov r2.xy, intex; mov r2.zw, ones`).
+- En citro3d, `intex` (v1) es un loader desde buffer (`AttrInfo_AddLoader`, `main.cpp` línea 125). En nuestro test triangle, `intex` es un fixed attribute (`C3D_FixedAttribSet`, `c3d_framebuffer.cpp` línea 327).
+
+**Hipótesis A: Es el registro intermedio `r2`.** La Pica200 no permite `dp4` que escriba a `outtc0` cuando el segundo operando es un registro temporal (`r2`) y no un atributo de entrada directo (`intex`). Cambiar a `intex` directo lo arregla.
+- Si A es cierta: V0 (triángulo con arreglo) OK, V1 (dibujo real con arreglo) OK o al menos sin HANG.
+
+**Hipótesis B: Es el fixed attribute.** La Pica200 no permite `dp4` que escriba a `outtc0` cuando el input attribute usado es un fixed attribute en vez de un loader. Aunque usemos `intex` directo, si sigue siendo fixed attribute, se sigue colgando.
+- Si B es cierta: V0 (triángulo con arreglo, fixed attribute) HANG igual.
+
+**Hipótesis C: El `dp4` con texcoord output siempre es delicado y depende de qué uniform se usa.** El uniform `texmat` (location 6) está en una posición que la Pica no soporta bien para texcoord. O los valores del uniform causan el problema.
+- Si C es cierta: V0 OK (los uniformes se setean igual), pero V1 HANG (el motor setea uniformes distintos en momentos distintos).
+
+**3 pasadas:**
+
+| Var | Shader | intex source | ¿Qué prueba? |
+|---|---|---|---|
+| V0 | c3d_main_fix (dp4 con `intex` directo) | fixed attribute | Triángulo: ¿arregla el dp4? |
+| V1 | c3d_main_fix (dp4 con `intex` directo) | fixed attribute → luego loader real | Dibujo real del motor: ¿aparece título? |
+| V2 | c3d_main (original, sin cambios) | fixed attribute | Baseline: esperado HANG |
+
+**Única variable que cambia:** En V0 vs V2 solo cambia el shader (dp4 con `r2` → dp4 con `intex` directo). En V1 vs V0 solo cambia si se hace el dibujo real del motor (sin `c3d-triangle.txt`).
+
+**El arreglo (c3d_main_fix.v.pica):**
+```
+; En vez de:
+;   mov r2.xy, intex
+;   mov r2.zw, ones
+;   dp4 outtc0.x, texmat[0], r2
+;   dp4 outtc0.y, texmat[1], r2
+; Usar (como citro3d, vshader.v.pica líneas 44-45):
+;   dp4 outtc0.x, texmat[0], intex
+;   dp4 outtc0.y, texmat[1], intex
+;   mov outtc0.zw, ones
+```
+Como `texmat` es identidad `(1,0,0,0)` y `(0,1,0,0)`, y `intex` es `(0,0,0,0)` como fixed attribute, el resultado es el mismo: `outtc0 = (0,0,?,?)`. La diferencia es que `dp4` lee de un input attribute directo, no de un registro temporal.
+
+**Pasadas en la consola:**
+
+| Pasada | Archivos de control | Qué mirar en pantalla |
+|---|---|---|
+| V0 | `c3d-triangle.txt` + `c3d-v0.txt` | Triángulo si funciona, negra si HANG |
+| V1 | `c3d-triangle.txt` solo (sin c3d-v0.txt) | Pantalla de título si funciona, negra si HANG |
+| V2 | `c3d-triangle.txt` + `c3d-v2.txt` | Negra (HANG baseline) |
+
+Esperar al menos 60 s en cada pasada.
+
+**Marcadores que se quedan:** los de `c3d_diag` para test 29. **Marcadores que se quitan:** los de test 28 (ya respondida).
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 29`.
+
+**Autocomprobación (plantilla-prueba.md):**
+
+1. **¿Tabla de diferencias?**
+   | Cambio | V0→V1 | V0→V2 |
+   |---|---|---|
+   | Shader | c3d_main_fix → c3d_main_fix (mismo) | c3d_main_fix → c3d_main (original) |
+   | dp4 source | intex directo | intex directo → r2 temporal |
+   | Dibujo | triángulo | triángulo → dibujo real del motor |
+   | intex type | fixed attribute | fixed attribute |
+   | Uniformes | mismos (SetEngineUniforms) | mismos |
+   - V0→V1: solo cambia el dibujo (triángulo vs real). Shader y config iguales.
+   - V0→V2: solo cambia el shader (fix vs original). Dibujo igual (triángulo).
+
+2. **¿Resultados distinguibles en el log?** Sí: `GPU HANG` (68-70 líneas) vs frames 0-11 `begin=ok` (1700+ líneas). V0 OK → A cierta. V0 HANG → B o C cierta.
+
+3. **¿Lo que se verá en pantalla puede verse?** V0: triángulo rojo sobre fondo negro, igual que en pruebas anteriores. V1: pantalla de título del motor (texto "UZDoom" o similar). Sí, se ve.
+
+4. **¿Se resuelve en una sola compilación?** Sí, los 3 caminos están en la misma compilación con interruptores.
+
+5. **¿Cada afirmación tiene su fuente?** Sí: citro3d shader (`~/work/refs/citro3d/test/3ds/source/vshader.v.pica` líneas 44-45), citro3d attr loader (`main.cpp` línea 125), nuestro fixed attr (`c3d_framebuffer.cpp` línea 327), outmap config (`~/work/refs/libctru/libctru/source/gpu/shbin.c` línea 130).
+
+6. **¿Si todas dieran el mismo resultado, qué sabría?** Si V0 y V2 dan el mismo HANG, sabría que el arreglo no funciona y que el problema no es el registro intermedio `r2` sino algo más profundo (fixed attribute, o la posición del uniform, o `dp4` con texcoord output en general). V1 no se probaría si V0 ya HANG. Si V0 y V1 funcionan ambas, sabría que el arreglo es correcto y que el motor puede dibujar.
+
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: archivos vacíos `c3d-v0.txt` y `c3d-v2.txt` para V0 y V2. V1 es sin archivo de variante (comportamiento por defecto con fix).
 
 ## Prueba 26 (hecha, con 2 pasadas)
 
@@ -63,113 +180,8 @@ Uniformes del shader del motor (valores del log A, prueba 26): `mvp=0`, `colorsc
 
 **Orientación del triángulo:** En la prueba 26 (simple_tri) el triángulo apuntaba hacia arriba porque usaba `Mtx_OrthoTilt` con coordenadas de pantalla (vértices en y=40-200, x=100-300). En la prueba 27 (V1-V4) apunta a la izquierda porque usa la matriz identidad con vértices en clip space (-0.5 a 0.5): el vértice superior está en (0, 0.5) y la base en (-0.5, -0.5) a (0.5, -0.5), que en pantalla se ve como un triángulo con la punta a la izquierda.
 
-**Lo que ya sabemos:**
-- Test 26, log A: `simple_tri` shader funciona (triángulo visible, 12 frames sin hang).
-- Test 26, log B: shader del motor (`c3d_main.v.pica`) con datos del motor cuelga.
-- Pero test 26 cambió shader, matriz, vértices y atributos a la vez.
-
-**5 variantes en una sola compilación.** Cada una se activa con un archivo vacío en la SD:
-
-| Var | Shader | Instrucciones | Uniformes | Color en | `outtc0` | ¿Qué prueba? |
-|---|---|---|---|---|---|---|
-| V0 | `c3d_main` (motor) | 11 (full) | 8 fvecs | v2 | sí | Baseline: esperado HANG |
-| V1 | `c3d_nouttc0` | 9 (-2 dp4 tc) | 8 fvecs | v2 | **no** | ¿Es `outtc0`? |
-| V2 | `c3d_nomul` | 9 (-mul +mov) | 8 fvecs | v2 | sí | ¿Es el `mul` del color? |
-| V3 | `c3d_intermed` | 7 (=simple_tri) | 8 fvecs | v2 | **no** | ¿Son los 8 uniformes? |
-| V4 | `simple_tri` | 7 | 4 fvecs | v1 | no | ¿Son los datos del motor? |
-
-**Diferencias entre variantes (una sola variable cada paso):**
-
-| Cambio | V0→V1 | V1→V2 | V2→V3 | V3→V4 |
-|---|---|---|---|---|
-| Shader | nouttc0 (-outtc0, -2dp4) | nomul (-mul,+mov) | intermed (-tex dp4) | simple_tri (4 uniforms) |
-| outtc0 | ❌→❌ | ❌→✅ | ✅→❌ | ❌→❌ |
-| mul color | ✅→✅ | ✅→❌ | ❌→❌ | ❌→❌ |
-| Uniformes | 8→8 | 8→8 | 8→8 | 8→4 |
-| Color attr | v2→v2 | v2→v2 | v2→v2 | v2→v1 |
-
-**Hipótesis:**
-
-**Autocomprobación (plantilla-prueba.md):**
-1. ¿Una sola pregunta? Sí: ¿qué aspecto del shader/datos causa el cuelgue?
-2. ¿Resultados distinguibles en el log? Sí: `GPU HANG` vs frames 0-11 `begin=ok`.
-3. ¿Una sola variable por paso? Sí (tabla de diferencias arriba).
-4. ¿Hipótesis con resultados distintos? Sí (H1-H4).
-5. ¿El código no rompe el motor en PC? Sí, todo detrás de `#ifdef __3DS__` / diag switch.
-6. ¿La línea `Test:` del log dirá 27? Sí, `c3d_diag.cpp` la escribe con el número de prueba.
-7. ¿Los marcadores se quitan cuando la pregunta está respondida? Sí, al actualizar STATUS.md.
-
-**Interruptores:** archivos vacíos `c3d-v0.txt` a `c3d-v4.txt` en `sdmc:/3ds/gzdoom/`, junto con `c3d-triangle.txt`.
-
-**Pasadas en la consola:**
-
-| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
-|---|---|---|
-| V0 | `c3d-triangle.txt` + `c3d-v0.txt` | Pantalla negra (HANG esperado) |
-| V1 | `c3d-triangle.txt` + `c3d-v1.txt` | Triángulo si funciona, negra si HANG |
-| V2 | `c3d-triangle.txt` + `c3d-v2.txt` | Triángulo si funciona, negra si HANG |
-| V3 | `c3d-triangle.txt` + `c3d-v3.txt` | Triángulo si funciona, negra si HANG |
-| V4 | `c3d-triangle.txt` + `c3d-v4.txt` | Triángulo si funciona, negra si HANG |
-
-Esperar al menos 60 s en cada pasada para que se escriban los 12 frames del log.
-
-Archivos nuevos:
-- `src/common/rendering/c3d/c3d_nouttc0.v.pica`: shader sin `outtc0` ni sus 2 dp4.
-- `src/common/rendering/c3d/c3d_nomul.v.pica`: shader con `mov outcol, incol` en vez de `mul`.
-- `src/common/rendering/c3d/c3d_intermed.v.pica`: shader con 8 uniformes pero cuerpo de simple_tri.
-- `src/CMakeLists.txt`: reglas picasso + bin2s para los 3 nuevos shaders.
-- `c3d_diag.h` / `c3d_diag.cpp`: `Test27Variant` (-1 a 4).
-- `c3d_framebuffer.cpp`: `DrawTestTriangle()` con ramas para V0-V4.
-
-## Prueba 28 (propuesta, sin compilar)
-
-**Pregunta:** ¿El cuelgue es por tener `outtc0` declarado como output del shader, o por escribirle valores calculados con `dp4`?
-
-**Lo que ya sabemos (con la prueba que lo mostró):**
-- Test 27: sin `outtc0` (V1, V3) → OK. Con `outtc0` (V0, V2) → HANG.
-- Los datos del motor no son el problema (V4).
-- No son los 8 uniformes (V3).
-- No es el `mul` (V2).
-
-**Hipótesis A: Es el output `outtc0` en sí.** La Pica se cuelga cuando un shader declara `.out outtc0 texcoord0` pero no hay textura bindada en el tex env. Aunque no se escriba nada útil, el hecho de que el output exista es suficiente.
-- Si A es cierta: V0 (outtc0 = constante 0,0) se cuelga igual que V1 (dp4).
-
-**Hipótesis B: Son las instrucciones `dp4` que escriben `outtc0`.** Escriben valores calculados desde `texmat`, y algo en esa operación es lo que cuelga. Si se escribe un valor constante, funciona.
-- Si B es cierta: V0 (outtc0 = constante 0,0) funciona, V1 (dp4) se cuelga.
-
-**Hipótesis C: Es el par `outtc0` + tex env sin textura.** El shader declara `outtc0` y el tex env está configurado para usar texcoords (como en el motor real). Sin textura bindada, la Pica se cuelga. Si se binda una textura 1x1 de relleno, funciona.
-- Si C es cierta: V0 y V1 se cuelgan igual (ambos tienen outtc0 + tex env sin textura). Pero V2 (mismo shader + textura 1x1) funciona.
-
-**2 variantes (+ baseline):**
-
-| Var | Shader | `outtc0` | Textura bindada | ¿Qué prueba? |
-|---|---|---|---|---|
-| V0 | motor + `mov outtc0, (0,0,0,0)` | sí (constante) | no | ¿Es dp4 o es outtc0 en sí? |
-| V1 | motor (full, dp4) | sí (dp4) | no | Baseline: esperado HANG |
-| V2 | motor (full, dp4) | sí (dp4) | **sí** (1x1 blanca) | ¿Falta textura? |
-
-**Única variable que cambia:** En V0 solo cambia el cálculo de `outtc0` (dp4 → constante). En V2 solo cambia si hay textura bindada.
-
-**Pasadas en la consola:**
-
-| Pasada | Archivos de control | Qué mirar en pantalla |
-|---|---|---|
-| V0 | `c3d-triangle.txt` + `c3d-v0.txt` | Triángulo si funciona, negra si HANG |
-| V1 | `c3d-triangle.txt` + `c3d-v1.txt` | Negra (HANG baseline) |
-| V2 | `c3d-triangle.txt` + `c3d-v2.txt` | Triángulo si la textura arregla, negra si no |
-
-**Marcadores que se quedan:** los de `c3d_diag` para test 28. **Marcadores que se quitan:** los de test 27 (ya respondida).
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 28`.
-
-**Autocomprobación:**
-1. ¿Una sola pregunta? Sí: ¿por qué `outtc0` cuelga?
-2. ¿Resultados distinguibles? Sí: HANG (70 líneas) vs OK (frames 0-11 ok).
-3. ¿Una sola variable por paso? V0 vs V1: solo el cálculo de outtc0. V2 vs V1: solo la textura bindada.
-4. ¿Hipótesis con resultados distintos? A: V0 HANG, V2 HANG. B: V0 OK, V2 HANG. C: V0 HANG, V2 OK.
-5. ¿El código no rompe el motor en PC? Sí, detrás de `#ifdef __3DS__` / diag switch.
-6. ¿La línea `Test:` dirá 28? Sí.
-7. ¿Puede Alex preparar cada pasada sin equivocarse? Sí, archivos vacíos con nombres distintos.
+**Autocomprobación (plantilla-prueba.md, pregunta 6):**
+6. ¿Si todas las variantes dieran el mismo resultado, qué sabría? Si V0 y V2 funcionaran ambas, sabría que ni `outtc0` en sí ni `dp4` son el problema: sería la combinación de `dp4` + falta de textura en el tex env. Eso descartaría A y B, y confirmaría que el arreglo es bindar una textura.
 
 ## Registro de pruebas
 
@@ -192,6 +204,7 @@ Archivos nuevos:
 | 25 | ¿Qué parte del fotograma cuelga? | H1 confirmada (dibujo cuelga, pasada B). H3 descartada (sin textura igual cuelga, D). H4 descartada (triángulo mínimo cuelga, C). Causa: shader o estado compartido. |
 | 26 | ¿Shader del motor vs shader mínimo? | Shader del motor cuelga (log B). Shader mínimo funciona (log A). **El shader del motor es el culpable.** |
 | 27 | ¿Qué aspecto del shader/datos causa el cuelgue? | **`outtc0` es la causa.** V1 (sin outtc0) OK, V2 (con outtc0) HANG, V3 (sin outtc0) OK, V4 (datos del motor, sin outtc0) OK. H3 y H4 descartadas. |
+| 28 | ¿Por qué `outtc0` cuelga? ¿Es la declaración, `dp4`, o falta de textura? | **`dp4` escribiendo `outtc0` es la causa.** V0 (constante) OK, V1 (dp4) HANG, V2 (dp4+textura) HANG. Hipótesis A y C descartadas, B confirmada. |
 
 ## Pendientes que no son la pregunta abierta
 
