@@ -30,10 +30,6 @@
 #include "vm.h"
 #include "zstring.h"
 
-#ifdef __3DS__
-#include "platform_3ds.h"
-#endif
-
 // MACROS ------------------------------------------------------------------
 
 #ifndef MAX_TRY_DEPTH
@@ -371,11 +367,6 @@ void Joy_MapRumbleType(const FName sound, const FName identifier)
 void Joy_ResetRumbleMapping()
 {
 	if (haptics_debug) DPrintf(DMSG_NOTIFY, "rumble reset\n");
-
-#ifdef __3DS__
-	N3DS_Log("TEST13: Joy_ResetRumbleMapping before I_Rumble");
-	N3DS_LogFlush();
-#endif
 	RumbleMapping.Clear();
 	RumbleAlias.Clear();
 	RumbleMissed.Clear();
@@ -385,11 +376,6 @@ void Joy_ResetRumbleMapping()
 	Haptics.current.left_trigger = Haptics.current.right_trigger =
 	Haptics.current.ticks = 0;
 	I_Rumble(0, 0, 0, 0);
-
-#ifdef __3DS__
-	N3DS_Log("TEST13: Joy_ResetRumbleMapping after I_Rumble");
-	N3DS_LogFlush();
-#endif
 }
 
 //==========================================================================

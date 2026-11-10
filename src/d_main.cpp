@@ -92,10 +92,6 @@
 #include "p_setup.h"
 #include "po_man.h"
 #include "printf.h"
-#ifdef __3DS__
-#include "platform_3ds.h"
-#endif // __3DS__
-
 #include "r_data/r_vanillatrans.h"
 #include "r_sky.h"
 #include "r_utility.h"
@@ -1599,20 +1595,10 @@ void D_DoomLoop ()
 
 	vid_cursor->Callback();
 
-#ifdef __3DS__
-	Printf("TEST14: entering D_DoomLoop\n");
-#endif
-
 	for (;;)
 	{
 		try
 		{
-#ifdef __3DS__
-			static int test14_frame = 0;
-			if (test14_frame < 5) Printf("TEST14: loop iteration %d\n", test14_frame);
-			test14_frame++;
-#endif
-
 			GStrings.SetDefaultGender(players[consoleplayer].userinfo.GetGender()); // cannot be done when the CVAR changes because we don't know if it's for the consoleplayer.
 
 			// frame syncronous IO operations
@@ -1623,23 +1609,11 @@ void D_DoomLoop ()
 			}
 			I_SetFrameTime();
 
-#ifdef __3DS__
-			if (test14_frame < 5) Printf("TEST14: before TryRunTics\n");
-#endif
 			TryRunTics (); // will run at least one tic
-#ifdef __3DS__
-			if (test14_frame < 5) Printf("TEST14: after TryRunTics\n");
-#endif
 			// Update display, next frame, with current state.
 			I_StartTic ();
 			D_ProcessEvents();
-#ifdef __3DS__
-			if (test14_frame < 5) Printf("TEST14: before D_Display\n");
-#endif
 			D_Display ();
-#ifdef __3DS__
-			if (test14_frame < 5) Printf("TEST14: after D_Display\n");
-#endif
 			S_UpdateMusic();
 
 			if (gameloop_abort)
@@ -3780,18 +3754,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	// [RH] Parse any SNDINFO lumps
 	if (!batchrun) Printf ("S_InitData: Load sound definitions.\n");
-
-#ifdef __3DS__
-	N3DS_Log("*** TEST13: before S_InitData ***");
-	N3DS_LogFlush();
-#endif
 	S_InitData ();
-
-#ifdef __3DS__
-	N3DS_Log("*** TEST13: after S_InitData ***");
-	N3DS_LogFlush();
-	N3DS_LogHeapDiagnostic("after_S_InitData");
-#endif
 
 	// [RH] Parse through all loaded mapinfo lumps
 	if (!batchrun) Printf ("G_ParseMapInfo: Load map definitions.\n");
@@ -3807,9 +3770,6 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	S_ParseMusInfo();
 
 	if (!batchrun) Printf ("Texman.Init: Init texture manager.\n");
-#ifdef __3DS__
-	N3DS_LogHeapDiagnostic("before_TexMan");
-#endif
 	UpdateUpscaleMask();
 	SpriteFrames.Clear();
 	TexMan.AddTextures([]()
@@ -3817,10 +3777,6 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 		StartWindow->Progress();
 		if (StartScreen) StartScreen->Progress(1);
 	}, CheckForHacks, InitBuildTiles);
-#ifdef __3DS__
-	N3DS_LogHeapDiagnostic("after_TexMan");
-	N3DS_TrimHeap();
-#endif
 	PatchTextures();
 	TexAnim.Init();
 	G_AddBoomHelpScreens();
@@ -3835,23 +3791,12 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	V_LoadTranslations();
 	UpdateGenericUI(false);
 
-#ifdef __3DS__
-	N3DS_LogHeapDiagnostic("after_fonts");
-	N3DS_TrimHeap();
-#endif
-
 	// [CW] Parse any TEAMINFO lumps.
 	if (!batchrun) Printf ("ParseTeamInfo: Load team definitions.\n");
 	FTeam::ParseTeamInfo ();
 
-#ifdef __3DS__
-	N3DS_Log("[TEST21] Before R_ParseTrnslate+PClassActor::StaticInit\n"); N3DS_LogFlush();
-#endif
 	R_ParseTrnslate();
 	PClassActor::StaticInit ();
-#ifdef __3DS__
-	N3DS_Log("[TEST21] After PClassActor::StaticInit (LoadActors returned)\n"); N3DS_LogFlush();
-#endif
 	FBaseCVar::InitZSCallbacks ();
 
 	Job_Init();
@@ -3878,11 +3823,6 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (StartScreen) StartScreen->Progress(1);
 	StartWindow->Progress();
 	R_Init ();
-
-#ifdef __3DS__
-	N3DS_LogHeapDiagnostic("after_R_Init");
-	N3DS_TrimHeap();
-#endif
 
 	if (!batchrun) Printf ("DecalLibrary: Load decals.\n");
 	DecalLibrary.ReadAllDecals ();
@@ -4011,11 +3951,6 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (!(restart || norun))
 		V_Init2();
 
-#ifdef __3DS__
-	N3DS_LogHeapDiagnostic("after_V_Init2");
-	N3DS_TrimHeap();
-#endif
-
 	if (!(batchrun || norun)) Printf ("V_Init: allocate screen.\n");
 	if (!(restart || norun))
 	{
@@ -4029,15 +3964,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	StartScreen = nostartscreen? nullptr : GetGameStartScreen(per_shader_progress > 0 ? max_progress * 10 / 9 : max_progress + 3);
 	setmodeneeded = true;
-
-#ifdef __3DS__
-	N3DS_Log("*** TEST13: before StartScreen::Render ***");
-	N3DS_LogHeapDiagnostic("before_StartScreen_Render");
-#endif
 	if (StartScreen != nullptr) StartScreen->Render();
-#ifdef __3DS__
-	N3DS_Log("*** TEST13: after StartScreen::Render ***");
-#endif
 
 	if (norun || batchrun)
 	{

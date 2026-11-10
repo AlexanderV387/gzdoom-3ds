@@ -40,10 +40,6 @@
 #include "thingdef.h"
 #include "types.h"
 
-#ifdef __3DS__
-#include "platform_3ds.h"
-#endif
-
 extern void LoadActors ();
 extern void InitBotStuff();
 extern void ClearStrifeTypes();
@@ -383,17 +379,8 @@ void PClassActor::StaticInit()
 	}
 
 	if (!batchrun) Printf ("LoadActors: Load actor definitions.\n");
-#ifdef __3DS__
-	N3DS_Log("[TEST21] Before ClearStrifeTypes+LoadActors\n"); N3DS_LogFlush();
-#endif
 	ClearStrifeTypes();
-#ifdef __3DS__
-	N3DS_Log("[TEST21] After ClearStrifeTypes, before LoadActors()\n"); N3DS_LogFlush();
-#endif
 	LoadActors ();
-#ifdef __3DS__
-	N3DS_Log("[TEST21] After LoadActors(), before InitServices\n"); N3DS_LogFlush();
-#endif
 	InitServices();
 
 

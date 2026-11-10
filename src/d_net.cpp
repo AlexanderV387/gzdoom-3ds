@@ -2204,18 +2204,10 @@ void TryRunTics()
 		doWait = true;
 
 	// Get the full number of tics the client can run.
-#ifdef __3DS__
-	static int test14_waits = 0;
-	if (doWait && test14_waits < 5) Printf("TEST14: I_WaitForTic called (wait %d)\n", test14_waits);
-#endif
 	if (doWait)
 		EnterTic = I_WaitForTic(LastEnterTic);
 	else
 		EnterTic = I_GetTime();
-#ifdef __3DS__
-	if (doWait && test14_waits < 5) Printf("TEST14: I_WaitForTic returned, EnterTic=%d\n", EnterTic);
-	test14_waits++;
-#endif
 
 	const int startCommand = ClientTic;
 	int totalTics = EnterTic - LastEnterTic;
