@@ -18,56 +18,89 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **El comando de dibujo es la causa del cuelgue:** sin dibujo enviado (`c3d-nodraw.txt`), los fotogramas 0-11 corren sin problemas (prueba 25, pasada B, línea 51-73).
 9. **La textura no es la causa:** sin textura (`c3d-notex.txt`), el dibujo se envía igual y la GPU se cuelga (prueba 25, pasada D, línea 50-53).
 10. **El problema no son los buffers del motor:** un triángulo mínimo con `DrawArrays`, vértices en memoria lineal y sin textura también cuelga la GPU (prueba 25, pasada C, línea 49-51). El shader del motor se usa en ambos casos.
+11. **El shader del motor es el culpable.** Con el shader mínimo de `simple_tri` (un uniforme, dos atributos, sin texcoord output) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor (8 uniformes, 3 atributos, texcoord output) la GPU se cuelga (prueba 26, log B). El render target y la GPU en general funcionan.
 
 ## Pregunta abierta
 
-**¿El cuelgue lo provoca el shader del motor (vértice o fragmento), o la configuración del estado de renderizado que se comparte entre todos los dibujos?** El shader se compila desde `c3d_main_shbin.h` (shaders precompilados del motor). El triángulo mínimo usa los mismos uniformes y el mismo programa shader.
+**¿Qué aspecto del shader del motor causa el cuelgue?** ¿Son los **uniformes extra** (`colorscale`, `colormul`, `texmat[2]` que suman 4 fvecs más), las **instrucciones extra** (dp4 para texcoords y mul para color), o el **output de texcoord** (`outtc0`)?
 
-## Prueba 25 (hecha, con 4 pasadas)
+El shader del motor (`c3d_main.v.pica`) vs el de `simple_tri`:
+- Uniformes: 8 fvecs (mvp[4]+colorscale+colormul+texmat[2]) vs 4 fvecs (projection[4])
+- Atributos: 3 (v0=v1=v2) vs 2 (v0=v1)
+- Outputs: 3 (outpos+outtc0+outcol) vs 2 (outpos+outclr)
+- Instrucciones: 11 (dp4×6, mov×3, mul×2) vs 7 (dp4×4, mov×3)
+
+## Prueba 26 (hecha, con 2 pasadas)
 
 **Resultado:**
-- **A (ref):** `GPU HANG` en frame 1, como siempre. ✅ Referencia confirmada.
-- **B (`c3d-nodraw.txt`):** frames 0-11 todos `begin=ok`, sin `GPU HANG`. ✅ **H1 confirmada**: el dibujo cuelga.
-- **C (`c3d-triangle.txt`):** `GPU HANG` en frame 1 con triángulo mínimo. ❌ No es solo el dibujo del motor: el shader o el estado compartido fallan.
-- **D (`c3d-notex.txt`):** `GPU HANG` en frame 1 sin textura. ❌ **H3 descartada**.
+- **A** (`c3d-triangle.txt` + `c3d-minimal-shader.txt`): `minshader=1`, frames 0-11 `begin=ok`, sin `GPU HANG`. Triángulo visible en pantalla. ✅ **El shader de simple_tri funciona.**
+- **B** (`c3d-triangle.txt` solo): `minshader=0`, `GPU HANG` en frame 1. ❌ **El shader del motor cuelga.**
 
-**Hipótesis descartadas:** H2 (no es el dibujo), H3 (textura), H4 (buffers del motor).
-**Hipótesis confirmada:** H1 (el dibujo cuelga), pero la causa es más profunda: algo común a todo dibujo, incluido el triángulo mínimo.
+**Conclusión:** El problema es el shader del motor (`c3d_main.v.pica`) o cómo se configuran sus uniformes. El render target, la GPU y citro3d están sanos.
 
-**Nuevo foco:** el shader del motor (vértice/fragmento) o la configuración del estado de renderizado compartido.
+## Prueba 27 (propuesta, sin aprobar)
 
-## Análisis de la prueba 25
+**Pregunta:** ¿El cuelgue lo provocan los uniformes extra del shader del motor, o las instrucciones extra?
 
-La prueba 25 confirmó que el cuelgue lo provoca **cualquier** comando de dibujo enviado a la GPU, no solo el del motor. Con `c3d-nodraw.txt` los fotogramas corren sin problemas, pero con `c3d-triangle.txt` (un triángulo mínimo sin nada del motor) la GPU se cuelga igual.
+**Diseño:** shader intermedio (`c3d_mid.v.pica`) que tiene los mismos uniformes que el shader del motor (8 fvecs) pero solo las instrucciones de simple_tri (dp4×4 para posición + mov para color). Sin texcoord output, sin dp4 extra, sin mul.
 
-Esto descarta que el problema sean los buffers de vértices del motor, las texturas o los índices. Quedan dos sospechosos:
-- **El shader del motor** (`c3d_main.v.pica`): tiene 4 uniformes (mvp[4]=16 slots, colorscale, colormul, texmat[2]=2) y 3 atributos. El ejemplo `simple_tri` que funciona usa solo 1 uniforme y 2 atributos.
-- **El estado de renderizado compartido**: combiners, blending, depth test, viewport, render target. Se configuran una vez y se heredan a todo dibujo.
+**Hipótesis A: Son los uniformes extra.**
+- El shader intermedio se cuelga igual que el del motor.
+- En el log: `GPU HANG` en frame 1.
 
-## Prueba 26 (propuesta, sin aprobar)
+**Hipótesis B: Son las instrucciones extra (dp4 para texcoords, mul para color).**
+- El shader intermedio funciona como simple_tri.
+- En el log: frames 0-11 `begin=ok`, sin `GPU HANG`.
 
-**Pregunta:** ¿El shader del motor (`c3d_main.v.pica`) es el que cuelga la GPU, o es el estado de renderizado compartido?
+**Hipótesis C: Es el output de texcoord (`outtc0`).**
+- Mismo resultado que B (porque el intermedio no tiene `outtc0`).
+- Para distinguir B de C se necesitaría un test 28.
 
-**Hipótesis A: El shader del motor es el culpable.**
-- Si usamos un shader mínimo (como `simple_tri`) para el triángulo de prueba, la GPU no se cuelga.
-- En el log: `frame 0: begin=ok ... draws: arrays=1`, luego `frame 1: begin=ok`. Sin `GPU HANG`.
+**Única variable que cambia:** el shader program. Todo lo demás igual que test 26 (mismos vértices, mismo render target, mismos combiners).
 
-**Hipótesis B: No es el shader, es el estado de renderizado compartido.**
-- Aunque usemos un shader mínimo, la GPU se sigue colgando.
-- En el log: `GPU HANG: frame 1 could not start`, igual que siempre.
+Nuevo interruptor `c3d-midshader.txt`: si existe junto a `c3d-triangle.txt`, usa `c3d_mid.v.pica` en vez del shader del motor.
 
-**Única variable que cambia:** el shader program bound al dibujar el triángulo. Nuevo interruptor `c3d-minimal-shader.txt`: si existe, `DrawTestTriangle()` compila y usa un shader mínimo (1 uniforme `projection[4]`, 2 atributos: posición y color) en lugar del shader del motor.
+**El shader intermedio (`c3d_mid.v.pica`):**
+```
+.fvec mvp[4]
+.fvec colorscale
+.fvec colormul
+.fvec texmat[2]
 
-Archivos que se tocan:
-- `c3d_diag.h` / `c3d_diag.cpp`: nuevo interruptor `MinimalShader`.
-- `c3d_framebuffer.cpp`: `DrawTestTriangle()` conlaza un shader mínimo cuando `MinimalShader` es true.
+.constf ones(1.0, 1.0, 1.0, 1.0)
+
+.out outpos position
+.out outcol color
+
+.alias inpos v0
+.alias incol v1
+
+.proc main
+    mov r0.xyz, inpos
+    mov r0.w,   ones
+    dp4 outpos.x, mvp[0], r0
+    dp4 outpos.y, mvp[1], r0
+    dp4 outpos.z, mvp[2], r0
+    dp4 outpos.w, mvp[3], r0
+    mov outcol, incol
+    end
+.end
+```
+
+Mismos 8 uniformes que el motor, pero solo 7 instrucciones como simple_tri, y sin `outtc0`.
 
 **Pasadas en la consola:**
 
 | Pasada | Archivos de control | Qué mirar |
 |---|---|---|
-| A (ref) | `c3d-triangle.txt` | Pantalla negra (hang, como siempre) |
-| B | `c3d-triangle.txt` + `c3d-minimal-shader.txt` | Triángulo rojo si H_A; pantalla negra si H_B |
+| A (ref minimal) | `c3d-triangle.txt` + `c3d-minimal-shader.txt` | Triángulo visible (confirmar que funciona) |
+| B (intermedio) | `c3d-triangle.txt` + `c3d-midshader.txt` | Triángulo visible si H_B/C; pantalla negra si H_A |
+
+Archivos que se tocan:
+- `src/common/rendering/c3d/c3d_mid.v.pica`: nuevo shader intermedio.
+- `src/CMakeLists.txt`: añadir picasso + bin2s para el shader intermedio.
+- `c3d_diag.h` / `c3d_diag.cpp`: nuevo interruptor `MidShader`.
+- `c3d_framebuffer.cpp`: camino para el shader intermedio en `DrawTestTriangle()`.
 
 ## Registro de pruebas
 
@@ -88,11 +121,12 @@ Archivos que se tocan:
 | 23 | Comprobación de salud de la GPU al iniciar | Rompió el arranque; 23b sin datos nuevos |
 | 24 | Buffer de comandos normal y limpieza | Log cortado en las fuentes; sin marcadores: no aporta |
 | 25 | ¿Qué parte del fotograma cuelga? | H1 confirmada (dibujo cuelga, pasada B). H3 descartada (sin textura igual cuelga, D). H4 descartada (triángulo mínimo cuelga, C). Causa: shader o estado compartido. |
+| 26 | ¿Shader del motor vs shader mínimo? | Shader del motor cuelga (log B). Shader mínimo funciona (log A). **El shader del motor es el culpable.** |
 
 ## Pendientes que no son la pregunta abierta
 
-- **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Es un bug de formato del motor (`%o` no sustituido). No afecta a la 3DS.
-- **HOME no responde:** en ninguna de las 4 pasadas el botón HOME abrió la consola de depuración. Puede ser porque el hilo de la consola no arranca o porque el cuelgue de GPU bloquea el hilo principal. Pendiente de investigar.
+- **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Causa desconocida.
+- **HOME no responde:** en ninguna de las pasadas el botón HOME volvió al menú de la 3DS. En la pasada A del test 26 los fotogramas avanzaban sin cuelgue y tampoco respondió, así que no es por el cuelgue de GPU. Pendiente de investigar.
 - Entrada de mandos: el gestor del joystick está vacío (punto 2).
 - Líneas y puntos (automapa), niebla, luz, portales, sonido, controles 3DS, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
 - La carga de las fuentes TrueType latinas genera atlas de 1 MB cada una con el juego de caracteres completo: lento y caro en memoria. Recortar el juego de caracteres cuando el resto funcione.

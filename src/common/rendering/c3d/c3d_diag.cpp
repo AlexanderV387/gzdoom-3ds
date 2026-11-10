@@ -20,6 +20,7 @@ namespace Diag
 bool NoDraw = false;
 bool NoTex = false;
 bool Triangle = false;
+bool MinimalShader = false;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -60,7 +61,8 @@ void Init()
 	NoDraw = Exists("c3d-nodraw.txt");
 	NoTex = Exists("c3d-notex.txt");
 	Triangle = Exists("c3d-triangle.txt");
-	Line("switches: nodraw=%d notex=%d triangle=%d", NoDraw, NoTex, Triangle);
+	MinimalShader = Exists("c3d-minimal-shader.txt");
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d", NoDraw, NoTex, Triangle, MinimalShader);
 }
 
 bool HangReported()

@@ -5,9 +5,10 @@
 ** "GPU HANG" line when a frame's GPU work never finishes.
 **
 ** Switches (empty files in sdmc:/3ds/gzdoom/, read once at start):
-**   c3d-nodraw.txt    everything as usual, but no draw command reaches the GPU
-**   c3d-notex.txt     draws without textures (vertex colour only)
-**   c3d-triangle.txt  instead of the engine's 2D, one fixed red triangle per frame
+**   c3d-nodraw.txt        everything as usual, but no draw command reaches the GPU
+**   c3d-notex.txt         draws without textures (vertex colour only)
+**   c3d-triangle.txt      instead of the engine's 2D, one fixed red triangle per frame
+**   c3d-minimal-shader.txt use the simple_tri shader (not the engine's) for the test triangle
 **
 ** All lines start with "[C3D]" and are flushed to the SD card at once.
 **
@@ -27,6 +28,7 @@ namespace Diag
 extern bool NoDraw;
 extern bool NoTex;
 extern bool Triangle;
+extern bool MinimalShader;
 
 void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

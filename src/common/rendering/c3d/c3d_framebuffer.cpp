@@ -12,6 +12,7 @@
 #include "c3d_internal.h"
 #include "c3d_diag.h"
 #include "c3d_main_shbin.h"
+#include "c3d_simpletri_shbin.h"
 
 #include "flatvertices.h"
 #include "hw_skydome.h"
@@ -37,6 +38,13 @@ static C3DFrameBuffer *TheFrameBuffer;
 static C3DRenderState *TheRenderState;
 static DVLB_s *ShaderDVLB;
 static shaderProgram_s ShaderProgram;
+
+// Test 26: minimal shader from 3ds-examples/graphics/gpu/simple_tri.
+static DVLB_s *g_SimpletriDVLB;
+static shaderProgram_s g_SimpletriProgram;
+static int g_SimpletriUniform_projection;
+static C3D_Mtx g_SimpletriProjection;
+static float *g_SimpletriVertices;
 
 C3DFrameBuffer *Get()
 {
@@ -99,6 +107,12 @@ C3DFrameBuffer::~C3DFrameBuffer()
 	C3D_RenderTargetDelete(mTop);
 	shaderProgramFree(&ShaderProgram);
 	DVLB_Free(ShaderDVLB);
+	if (g_SimpletriDVLB != nullptr)
+	{
+		shaderProgramFree(&g_SimpletriProgram);
+		DVLB_Free(g_SimpletriDVLB);
+		g_SimpletriDVLB = nullptr;
+	}
 	C3D_Fini();
 	TheFrameBuffer = nullptr;
 }
@@ -120,6 +134,8 @@ void C3DFrameBuffer::InitializeState()
 
 	Printf("C3D: backend ready, %u KB of linear memory free\n", (unsigned)(linearSpaceFree() / 1024));
 	Diag::Init();
+	Diag::Line("engine shader: DVLE=%d mvp=%d colorscale=%d colormul=%d texmat=%d",
+		ShaderDVLB->numDVLE, Uniforms.mvp, Uniforms.colorscale, Uniforms.colormul, Uniforms.texmat);
 }
 
 void C3DFrameBuffer::ScreenBegin()
@@ -171,6 +187,61 @@ static float *TriangleVertices;
 
 static void DrawTestTriangle()
 {
+	if (Diag::MinimalShader)
+	{
+		// --- Minimal shader path (simple_tri) ---
+		if (g_SimpletriDVLB == nullptr)
+		{
+			g_SimpletriDVLB = DVLB_ParseFile((u32 *)c3d_simpletri_shbin, c3d_simpletri_shbin_size);
+			shaderProgramInit(&g_SimpletriProgram);
+			shaderProgramSetVsh(&g_SimpletriProgram, &g_SimpletriDVLB->DVLE[0]);
+			C3D_BindProgram(&g_SimpletriProgram);
+			g_SimpletriUniform_projection = shaderInstanceGetUniformLocation(g_SimpletriProgram.vertexShader, "projection");
+			Mtx_OrthoTilt(&g_SimpletriProjection, 0, 400, 0, 240, 0, 1, true);
+			Diag::Line("simpletri shader: DVLE=%d projection=%d",
+				g_SimpletriDVLB->numDVLE, g_SimpletriUniform_projection);
+
+			// Vertices: {x, y, z} for simple_tri (screen coords)
+			static const float v[] = {
+				200.f, 200.f, 0.5f,
+				100.f,  40.f, 0.5f,
+				300.f,  40.f, 0.5f,
+			};
+			g_SimpletriVertices = (float *)linearAlloc(sizeof(v));
+			memcpy(g_SimpletriVertices, v, sizeof(v));
+			GSPGPU_FlushDataCache(g_SimpletriVertices, sizeof(v));
+		}
+
+		C3D_BindProgram(&g_SimpletriProgram);
+		C3D_SetViewport(0, 0, 240, 400);
+		C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+		C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+		C3D_AlphaTest(false, GPU_ALWAYS, 0);
+		C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+		C3D_CullFace(GPU_CULL_NONE);
+		C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+		for (int i = 0; i < 6; i++)
+		{
+			C3D_TexEnv *env = C3D_GetTexEnv(i);
+			C3D_TexEnvInit(env);
+			if (i == 0) C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
+		}
+
+		C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_SimpletriUniform_projection, &g_SimpletriProjection);
+
+		C3D_AttrInfo *ai = C3D_GetAttrInfo();
+		AttrInfo_Init(ai);
+		AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 3);			// v0: position
+		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 1, 0, 0, 1);	// v1: red
+		C3D_BufInfo *bi = C3D_GetBufInfo();
+		BufInfo_Init(bi);
+		BufInfo_Add(bi, g_SimpletriVertices, 3 * sizeof(float), 1, 0x0);
+		C3D_DrawArrays(GPU_TRIANGLES, 0, 3);
+		Diag::Draw(false, true);
+		return;
+	}
+
+	// --- Engine shader path (unchanged) ---
 	if (TriangleVertices == nullptr)
 	{
 		static const float v[9] = { -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.f, 0.5f, -0.5f };
