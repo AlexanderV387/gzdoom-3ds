@@ -16,6 +16,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <algorithm>
 
 #include "cmdlib.h"
@@ -27,6 +28,14 @@
 #include "version.h"
 #include "zstring.h"
 #include "platform_3ds.h"
+
+// The test build's number and commit, written by platform/3ds/build-test.sh: every log says
+// which code it comes from.
+#if __has_include("n3ds_testinfo.h")
+#include "n3ds_testinfo.h"
+#else
+#define N3DS_TEST_ID "dev build (not made with build-test.sh)"
+#endif
 
 extern const char *const BACKEND = "3DS";
 
@@ -48,9 +57,13 @@ void N3DS_Log(const char *text)
 	fputs(text, LogFile);
 }
 
+// fflush only hands the text to the FS service; fsync (FSFILE_Flush) puts it on the SD card.
+// Without it the last lines of the log can be lost when the console is switched off.
 void N3DS_LogFlush()
 {
-	if (LogFile) fflush(LogFile);
+	if (LogFile == nullptr) return;
+	fflush(LogFile);
+	fsync(fileno(LogFile));
 }
 
 void N3DS_FatalError(const char *message)
@@ -161,6 +174,8 @@ int main(int argc, char **argv)
 	LogFile = fopen(N3DS_DATA_DIR "/log.txt", "w");
 	if (LogFile) setvbuf(LogFile, nullptr, _IOLBF, 4096);	// line by line: a crash keeps the log
 	fprintf(LogFile, "%s %s for Nintendo 3DS (%s)\n", GAMENAME, GetVersionString(), __DATE__);
+	fprintf(LogFile, "Test: %s\n", N3DS_TEST_ID);
+	N3DS_LogFlush();
 
 	N3DS_LogMemory("start");
 	gfxInitDefault();

@@ -99,6 +99,15 @@ void I_PrintStr(const char *cp)
 	}
 	N3DS_Log(printData.GetChars());
 	if (printData.Len() > 0) lineStart = printData.Back() == '\n';
+
+	// Onto the SD card at most every quarter of a second: a hang or a power-off loses little.
+	static u64 lastSync = 0;
+	const u64 now = svcGetSystemTick();
+	if (lineStart && now - lastSync > SYSCLOCK_ARM11 / 4)
+	{
+		N3DS_LogFlush();
+		lastSync = now;
+	}
 }
 
 bool HoldingQueryKey(const char *key)
