@@ -26,7 +26,9 @@ platform/3ds/build-test.sh 25            # builds, checks, stores in ~/work/3ds-
 
 `build.sh` alone builds the host tools once (`build-host/`), then the 3DS build (`build-3ds/`), then packages the 3DSX with `uzdoom.pk3` and `game_support.pk3` in `data/` of its RomFS (the CJK dynamic fonts and the desktop `ui/` files are removed from the copy).
 
-Do not build from Windows (MSYS2) on a copy in `C:`: the path translation and the hand-made packaging produced two invalid tests (17 and 19). With the `devkitpro/devkitarm` Docker image instead of a local devkitPro, pass `SDL2_HOST=<static host SDL2 prefix>` (the image has no host SDL2).
+With Docker instead of a local devkitPro (the devkitPro installer may answer 403): `docker pull devkitpro/devkitarm:latest`, then `platform/3ds/docker-build-test.sh NN`. It runs `build-host-sdl2.sh` (a static host SDL2, which the image lacks), `build-sdl2-3ds.sh` and `build-test.sh` inside the image, as your user, and stores the test in the same `~/work/3ds-ports/pruebas/NN/`.
+
+Do not build from Windows (MSYS2) on a copy in `C:`: the path translation and the hand-made packaging produced two invalid tests (17 and 19).
 
 ## Diagnostics (citro3d backend)
 
