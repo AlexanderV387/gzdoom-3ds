@@ -67,13 +67,14 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-La imagen está corregida (prueba 32). El juego arranca, muestra título y créditos en orden. El botón HOME sigue sin responder y no se pueden usar los mandos para empezar una partida.
+La imagen está corregida (prueba 32). La prueba 33 integró `aptMainLoop()` + `hidScanInput()` y confirmó HOME suspende/restaura y los mandos funcionan en MAP01. Falta: que HOME cierre la aplicación (no solo suspenda) y diagnosticar el zoom del menú.
 
 **Prioridades (en orden):**
-1. **Botón HOME:** el motor no llama a `aptMainLoop()`. Integrarlo en el bucle principal o llamarlo periódicamente para que `aptHandleJumpToHome()` funcione.
-2. **Mandos:** `hidScanInput()` no se llama; el input va por SDL pero el gestor del joystick está vacío. Sin mandos no se puede empezar una partida.
-3. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
-4. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
+1. **Cierre desde HOME:** `aptMainLoop()` devuelve `false` al cerrar pero el valor se descarta. Conectarlo a `gameloop_abort` para que `D_DoomLoop()` salga (prueba 34).
+2. **Zoom del menú:** diagnosticar qué valores de escala y tamaño se usan al dibujar el menú (prueba 34, solo medir). Arreglo en la 35.
+3. **Rendimiento en partida:** sin datos aún. La prueba 33 jugó MAP01 pero no se midió el rendimiento.
+4. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
+5. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
 
 Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
@@ -258,6 +259,33 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 | HOME sigue sin responder (Alex lo confirma) | No hay `aptMainLoop()` en el bucle: `aptHandleJumpToHome()` nunca se ejecuta | Si `hidScanInput()` se necesita aparte de SDL para los mandos |
 
 **Código:** Se quitó el código testflip de `c3d_framebuffer.cpp` (15 líneas) y se aplicó el flip en `c3d_hwtexture.cpp` línea 100.
+
+## Prueba 34 (propuesta)
+
+**Pregunta principal:** ¿Conectar `aptMainLoop()` → `false` con `gameloop_abort = true` hace que el juego salga correctamente al pulsar HOME para cerrar?
+
+**Lo que ya sabemos:**
+- Prueba 33: `aptMainLoop()` + `hidScanInput()` funcionan, HOME suspende/restaura, pero no cierra.
+- Hecho S8: `APTHOOK_ONEXIT` se llama **después** de que `main()` retorna (dentro de `aptExit()`). El log ya está cerrado cuando se ejecuta.
+- `D_DoomLoop()` (`d_main.cpp:1598`) es `for(;;)` infinito. Solo sale si `gameloop_abort` es `true` (línea 1619).
+- `M_Quit()` (`doommenu.cpp:393`) NO settea `gameloop_abort`.
+- `aptMainLoop()` devuelve `false` cuando APT pide que la aplicación termine. Hoy ese valor se descarta en `I_StartFrame()` (`i_input.cpp:704`).
+
+**Hipótesis A:** `aptMainLoop()` devuelve `false` al cerrar desde HOME y setear `gameloop_abort = true` hace que `D_DoomLoop` salga.
+- Log: `[EXIT] aptMainLoop returned false`, `[EXIT] gameloop_abort set`, `GameMain exit`.
+
+**Hipótesis B:** `aptMainLoop()` NO devuelve `false` al cerrar (el sistema mata el proceso directamente).
+- Log: se corta sin marcas `[EXIT]`, idéntico a la prueba 33.
+
+**Segunda pregunta (diagnóstico del menú, solo medir):** ¿Qué valores de escala y tamaño se usan cuando se dibuja el menú?
+- Una vez, al detectar que se dibuja el menú, escribir en el log: `vid_scalemode`, `vid_scalefactor`, `screen->GetWidth()/GetHeight()`, `GetClientWidth()/GetClientHeight()`, `twod->GetWidth()/GetHeight()`, `CleanXfac/CleanYfac`, `uiscale`, `mScreenViewport`, `mOutputLetterbox`.
+- Sin arreglar nada del menú. Solo recopilar datos para la prueba 35.
+
+**Única variable que cambia:** En `I_StartFrame()` (`i_input.cpp`), conectar el retorno de `aptMainLoop()` a `gameloop_abort`. Marcas de diagnóstico del menú en `D_Display()` bajo `#ifdef __3DS__`.
+
+**Pasada:** Una sola. Esperar al título, abrir menú (ver zoom), jugar MAP01, HOME→volver, esperar 60 s, HOME→cerrar, esperar 10 s.
+
+**Autocomprobación:** 9 preguntas respondidas. Fuentes citadas. Una pasada sin archivos de control.
 
 ## Pendientes que no son la pregunta abierta
 
