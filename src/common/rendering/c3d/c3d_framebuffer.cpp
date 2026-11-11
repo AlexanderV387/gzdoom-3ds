@@ -335,21 +335,6 @@ void C3DFrameBuffer::Update()
 		return;
 	}
 	if (Diag::Triangle) DrawTestTriangle();
-	else if (Diag::TestFlip)
-	{
-		// Test 31: two coloured quads via the engine 2D path, no textures.
-		// Red 60x60 at top-left (0,0), green 60x60 at bottom-left (0, height-60).
-		int h = TheFrameBuffer->GetHeight();
-		static bool first = true;
-		if (first)
-		{
-			Diag::Line("testflip: height=%d red=(0,0,60,60) green=(0,%d,60,60)", h, h - 60);
-			first = false;
-		}
-		twod->AddColorOnlyQuad(0, 0, 60, 60, 0xffff0000);
-		twod->AddColorOnlyQuad(0, h - 60, 60, 60, 0xff00ff00);
-		::Draw2D(twod, *TheRenderState);
-	}
 	else
 	{
 		Draw2D();	// everything 2D still pending (menus, HUD, console, title)

@@ -26,6 +26,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 16. **El arreglo permanente (`mov outtc0.zw, ones`) funciona con el juego real.** La prueba 30 arrancó sin archivos de control, mostró la pantalla de título y la de créditos alternándose, sin GPU HANG. La imagen está volteada verticalmente (arriba↔abajo).
 17. **Texman.Init es el cuello de botella de carga.** Con los timestamps corregidos de la prueba 31, `Texman.Init: Init texture manager.` tarda ~51 s (53% del total de ~97 s). Le sigue un hueco de binding de teclas (~13.6 s, 14%) y `M_LoadDefaults` (~10 s, 10%).
 18. **El volteo vertical no está en la geometría.** La prueba 31 V0 (`testflip=1`) dibuja un cuadrado rojo en coordenadas (0,0) y uno verde en (0,180). En pantalla, el rojo aparece arriba y el verde abajo: Y crece hacia abajo, igual que en la 3DS. El pipeline geométrico conserva Y correctamente. El volteo debe estar en las texturas (`CreateTexture`, `c3d_hwtexture.cpp`).
+19. **El volteo vertical está en el orden de filas de `CreateTexture`.** La fila 0 de memoria del PICA200 es la parte SUPERIOR de la textura, no la inferior. Cambiar `sy = y * h / ph` a `sy = h - 1 - y * h / ph` (copiar de abajo arriba) corrige la imagen por completo: logo arriba, créditos en orden, letras derechas (prueba 32).
+20. **El motor no llama a `aptMainLoop()` ni a `hidScanInput()`.** El main loop es `GameMain()` → `D_DoomMain_Internal()` con `for(;;)` (d_main.cpp línea 1598). Sin `aptMainLoop()`, `aptHandleJumpToHome()` nunca se ejecuta: el botón HOME no funciona. El input va por SDL, pero `hidScanInput()` no se llama. Los ejemplos de 3ds-examples (`templates/application/source/main.c` líneas 6-28) y todos los ports usan `while(aptMainLoop()) { hidScanInput(); ... }` como patrón estándar (libctru `apt.c` línea 851-856, `hid.c` línea 172-219).
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -65,14 +67,13 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-El shader está arreglado permanentemente (`mov outtc0.zw, ones`). El juego arranca y muestra título y créditos alternándose, pero **la imagen está volteada verticalmente** (arriba↔abajo, no girada 180°). La prueba 31 demostró que el volteo NO está en la geometría (Y se conserva correctamente).
+La imagen está corregida (prueba 32). El juego arranca, muestra título y créditos en orden. El botón HOME sigue sin responder y no se pueden usar los mandos para empezar una partida.
 
 **Prioridades (en orden):**
-1. **Imagen volteada:** el volteo está en las texturas. Revisar `CreateTexture` en `c3d_hwtexture.cpp` (líneas 96-110): el orden de filas al copiar (`sy = y * h / ph`) puede estar al revés.
-2. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
-3. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
-4. **Botón HOME:** no responde en ninguna prueba desde la 26.
-5. **Mandos:** el gestor del joystick está vacío; no se puede empezar una partida.
+1. **Botón HOME:** el motor no llama a `aptMainLoop()`. Integrarlo en el bucle principal o llamarlo periódicamente para que `aptHandleJumpToHome()` funcione.
+2. **Mandos:** `hidScanInput()` no se llama; el input va por SDL pero el gestor del joystick está vacío. Sin mandos no se puede empezar una partida.
+3. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
+4. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
 
 Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
@@ -171,6 +172,7 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 | 29 | ¿Es la fuente de dp4 (`r2` vs `intex`) o faltar `outtc0.zw`? | **Faltar `outtc0.zw` es la causa.** V0 (sin zw) HANG, V1 repetida (con zw) OK, V2 (con zw) OK, V3 (sin zw) HANG. Todas con juego real. Hipótesis A, C, D descartadas, B confirmada. Error: la 1.ª V1 dio log incompleto y se usó para concluir; corregido con la repetición. |
 | 30 | ¿El arreglo permanente (`mov outtc0.zw, ones`) funciona sin archivos de control? ¿Dónde está el cuello de botella? | ✅ Arreglo confirmado permanente. Juego arranca, muestra título y créditos. Imagen volteada verticalmente. Sin GPU HANG. Timestamp T+26331644 ms era un bug de formato `%lld` en Printf (arreglado para la 31). |
 | 31 | ¿El volteo vertical está en la geometría o en las texturas? | ✅ Geometría OK: Y crece hacia abajo correctamente (V0 con testflip). Volteo está en texturas. Texman.Init es el cuello de botella (~51 s, 53%). Total carga ~97 s. |
+| 32 | ¿El flip de filas en `CreateTexture` corrige la imagen? | ✅ Sí. Imagen perfecta: logo arriba, créditos en orden, letras derechas. Texman.Init ~52 s (53.4%). HOME sigue sin responder. |
 
 ## Prueba 30 (hecha, sin archivos de control)
 
@@ -220,6 +222,42 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 | El juego sigue sin GPU HANG con el arreglo permanente (V1, log 76 líneas, `Init complete` línea 55) | | Si el botón HOME respondió (Alex no lo reportó) |
 
 **Veredicto:** El volteo vertical **no** está en la geometría. Está en las texturas. La siguiente prueba debe corregir el orden de filas en `CreateTexture` (`c3d_hwtexture.cpp`).
+
+## Prueba 32 (hecha, 1 pasada, log analizado)
+
+**Pregunta:** ¿El flip de filas en `CreateTexture` (`sy = h - 1 - y * h / ph`) corrige la imagen volteada?
+
+**Resultado:**
+
+| Pasada | Cambio | Log | Líneas | Resultado |
+|---|---|---|---|---|
+| Única | Flip de textura + testflip removed | log.txt | 76 | ✅ Imagen correcta |
+
+**En pantalla:** Logo de DOOM II arriba, créditos en orden, letras derechas, colores correctos. Sin volteo vertical.
+
+**Tiempos de carga:**
+
+| Fase | Tiempo (s) | % |
+|---|---|---|
+| Texman.Init | 52.1 | 53.4% |
+| Key bound gap (bumplight) | 14.0 | 14.4% |
+| M_LoadDefaults | 9.9 | 10.2% |
+| LoadActors | 6.7 | 6.9% |
+| GameMain start | 3.8 | 3.9% |
+| D_CheckNetGame | 3.2 | 3.3% |
+| Total | 97.6 s | |
+
+Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 min 38 s).
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| El flip de textura corrige la imagen por completo (log 76 líneas, foto confirma título + créditos correctos) | Texman.Init sigue siendo el cuello de botella (~52 s, 53%) | Por qué Texman.Init es tan lento; qué hace dentro |
+| El pipeline geométrico + flip de textura dan imagen perfecta (pruebas 31+32) | El hueco de 14 s entre binding de teclas y Texman.Init es parsing de ZScript/carga de definiciones | Si el tiempo manual de Alex coincide con ~97 s |
+| HOME sigue sin responder (Alex lo confirma) | No hay `aptMainLoop()` en el bucle: `aptHandleJumpToHome()` nunca se ejecuta | Si `hidScanInput()` se necesita aparte de SDL para los mandos |
+
+**Código:** Se quitó el código testflip de `c3d_framebuffer.cpp` (15 líneas) y se aplicó el flip en `c3d_hwtexture.cpp` línea 100.
 
 ## Pendientes que no son la pregunta abierta
 

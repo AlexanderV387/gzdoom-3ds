@@ -95,9 +95,11 @@ unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int
 		const unsigned tilesPerRow = pw >> 3;
 		for (int y = 0; y < ph; y++)
 		{
-			// The PICA200's t = 0 is the first row in memory: row 0 of the image goes there, so the
-			// engine's texture coordinates (v = 0 at the top) need no flip.
-			const int sy = y * h / ph;
+			// The engine uses OpenGL-style texture coordinates: v = 0 is at the BOTTOM of the image.
+			// The PICA200 reads row 0 from memory first, which becomes the TOP of the texture.
+			// So we copy the source rows bottom-to-top: destination row 0 (top) gets the last source row.
+			// Confirmed by test 31 (geometry Y is correct) and test 32 (this flip fixes the image).
+			const int sy = h - 1 - y * h / ph;
 			const uint8_t *srow = src + sy * w * 4;
 			const unsigned tileRow = (y >> 3) * tilesPerRow;
 			for (int x = 0; x < pw; x++)
