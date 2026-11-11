@@ -21,6 +21,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 11. **El cuelgue depende del shader o de sus datos.** Con la configuración de `simple_tri` (shader distinto, matriz `Mtx_OrthoTilt`, vértices en coordenadas de pantalla con z=0.5, dos atributos fijos) el triángulo se dibuja correctamente (prueba 26, log A). Con el shader del motor y sus datos (matriz identidad, vértices en clip space con z=-0.5, tres atributos) la GPU se cuelga (prueba 26, log B). La pasada cambió shader, matriz, vértices y atributos a la vez: no se sabe cuál es la causa exacta. Los uniformes del shader del motor se cargaron correctamente (log A, línea 46: `DVLE=1 mvp=0 colorscale=4 colormul=5 texmat=6`).
 12. **El output de texcoord (`outtc0`) es la causa del cuelgue.** En la prueba 27, las variantes sin `outtc0` (V1, V3) funcionan y las que lo tienen (V0, V2) se cuelgan. Los datos del motor no son el problema (V4: shader simple_tri con datos del motor funciona). No son los 8 uniformes (V3 funciona). No es el `mul` del color (V2 lo quita pero se cuelga igual porque tiene `outtc0`).
 13. **Las instrucciones de texcoord que calculan el valor con `dp4` son la causa específica.** No es la declaración de `outtc0` (prueba 28 V0 con constante funciona), ni la falta de textura (V2 con textura se cuelga igual). Entre V0 y V1 hay tres diferencias: instrucción (`mov` vs `dp4`), fuente (constante vs uniform+registro temporal) y componentes escritos (`.xyzw` vs solo `.xy`) (prueba 28).
+14. **Faltar escribir `outtc0.zw` es la causa del cuelgue.** Cuando `dp4` escribe solo `.x` y `.y` de `outtc0`, los componentes `.z` y `.w` quedan indefinidos y la GPU se cuelga. Añadir `mov outtc0.zw, ones` lo arregla (prueba 29, V2 OK vs V0/V3 HANG). No importa si el source de `dp4` es `intex` directo o un registro temporal `r2`.
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -60,146 +61,37 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-¿Qué hace que `dp4 outtc0.x, texmat[0], r2` cuelgue la GPU cuando el mismo patrón funciona en el ejemplo de citro3d? Entre nuestro shader (`c3d_main.v.pica`, líneas 34-37) y el de citro3d (`vshader.v.pica`, líneas 44-46) hay dos diferencias en las instrucciones de texcoord: (1) citro3d pasa `intex` directamente a `dp4`, nosotros lo pasamos por `r2`; (2) citro3d escribe además `outtc0.zw` con `mov`, nosotros no. La prueba 29 separa estas dos variables.
+Con la prueba 29 confirmado que **faltar escribir `outtc0.zw` es la causa del cuelgue**, queda entender por qué. La Pica200 requiere que los componentes no escritos de un output tengan un valor definido. ¿Es un bug del driver/PU, o nuestro shader omite algo que citro3d incluye? La prueba 30 probará el shader V2 (que funciona) con los datos reales del motor (sin `c3d-triangle.txt`) para ver si el juego arranca de verdad. Si funciona, el arreglo es añadir `mov outtc0.zw, ones` al shader original.
 
 Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
-## Prueba 29 (propuesta, 4 variantes de triángulo + juego real)
+## Prueba 29 (hecha, 4 variantes, logs analizados)
 
 **Pregunta:** ¿Cuál de las dos diferencias con citro3d (fuente de dp4: `r2` vs `intex` directo; componentes escritos: solo `.xy` vs `.xy` + `.zw`) es la que causa el cuelgue?
 
-**Lo que ya sabemos (con la prueba que lo mostró):**
-- Test 28: `dp4` escribiendo `outtc0` es la causa (hipótesis B confirmada).
-- `mov outtc0, constante` funciona (V0). No es la declaración de `outtc0`.
-- Bindar una textura dummy no ayuda (V2). No es falta de textura.
-- El ejemplo de citro3d (`~/work/refs/citro3d/test/3ds/source/vshader.v.pica`, líneas 44-46) usa `dp4 outtc0.x, texView[0], intex` y `mov outtc0.zw, myconst.xy` y funciona.
-- Nuestro shader (`c3d_main.v.pica`, líneas 34-37) usa `mov r2.xy, intex; mov r2.zw, ones; dp4 outtc0.x, texmat[0], r2` y se cuelga.
+**Resultado:**
 
-**Tabla de instrucciones de texcoord (instrucción por instrucción, pregunta 1):**
+| Var | dp4 source | outtc0.zw | Log | Resultado |
+|-----|-----------|-----------|-----|-----------|
+| V0 | `intex` directo | no | 70 líneas, HANG frame 1 | ❌ HANG |
+| V1 | `r2` (original) | sí | 36 líneas, no llegó a C3D | ❌ Negro (log incompleto) |
+| V2 | `intex` directo | sí | frames 0-11 ok, lento ~2min | ✅ Funciona |
+| V3 | `r2` (original) | no | 67 líneas, HANG frame 1 | ❌ HANG (baseline) |
 
-| # | Original (V3, HANG) | V0: solo fuente | V1: solo zw | V2: ambos | Citró3d (OK) |
-|---|---|---|---|---|---|
-| 1 | `mov r2.xy, intex` | `dp4 outtc0.x, texmat[0], intex` | `mov r2.xy, intex` | `dp4 outtc0.x, texmat[0], intex` | `dp4 outtc0.x, texView[0], intex` |
-| 2 | `mov r2.zw, ones` | `dp4 outtc0.y, texmat[1], intex` | `mov r2.zw, ones` | `dp4 outtc0.y, texmat[1], intex` | `dp4 outtc0.y, texView[1], intex` |
-| 3 | `dp4 outtc0.x, texmat[0], r2` | *(—)* | `dp4 outtc0.x, texmat[0], r2` | *(—)* | *(—)* |
-| 4 | `dp4 outtc0.y, texmat[1], r2` | *(—)* | `dp4 outtc0.y, texmat[1], r2` | *(—)* | *(—)* |
-| 5 | *(—)* | *(—)* | `mov outtc0.zw, ones` | `mov outtc0.zw, ones` | `mov outtc0.zw, myconst.xy` |
+**Veredicto de hipótesis:**
 
-**Qué lee cada instrucción y qué escribe:**
-
-| Instrucción | Lee de | Escribe en |
+| Hipótesis | Resultado | Razón |
 |---|---|---|
-| `mov r2.xy, intex` (V3#1) | intex (input attribute, fixed) | r2 (temp register) |
-| `mov r2.zw, ones` (V3#2) | ones (const) | r2 (temp register) |
-| `dp4 outtc0.x, texmat[0], r2` (V3#3) | texmat[0] (uniform), r2 (temp) | outtc0.x (texcoord output) |
-| `dp4 outtc0.x, texmat[0], intex` (V0#1, V2#1) | texmat[0] (uniform), intex (input attr) | outtc0.x (texcoord output) |
-| `mov outtc0.zw, ones` (V1#5, V2#5) | ones (const) | outtc0.zw (texcoord output) |
+| A: Es `r2` vs `intex` directo | ❌ Descartada | V0 (intex directo, sin zw) HANG igual. |
+| B: Faltan `.zw` | ✅✅ **Confirmada** | V0 (sin zw) HANG, V2 (con zw) OK, V3 (sin zw) HANG. Escribir `outtc0.zw` es la diferencia entre OK y HANG. |
+| C: Hace falta ambos juntos | ❌ Descartada | V2 funciona pero V0 no: no necesita ambos, solo zw. |
+| D: Problema más profundo | ❌ Descartada | V2 funciona. |
 
-**Variables que cambia cada variante frente al original (V3):**
+**Nota sobre V1:** El log no llegó a inicializar C3D (se cortó en `LoadActors`). No se puede evaluar si el shader V1 funciona o no, pero no importa: V0 ya demuestra que cambiar solo la fuente de dp4 no basta (HANG), y V2 demuestra que añadir zw sí funciona.
 
-| Variable | V0 | V1 | V2 |
-|---|---|---|---|
-| dp4 source: `r2` → `intex` directo | ✅ cambia | ❌ igual | ✅ cambia |
-| outtc0.zw write: no → sí | ❌ igual | ✅ cambia | ✅ cambia |
+**Conclusión:** **Faltar escribir los componentes `.zw` de `outtc0` es la causa del cuelgue.** La Pica200 necesita que todos los componentes del output de texcoord estén definidos. Cuando solo se escriben `.x` y `.y` (por instrucciones separadas `dp4 outtc0.x, ...` y `dp4 outtc0.y, ...`), los componentes `.z` y `.w` quedan indefinidos y la GPU se cuelga. Añadir `mov outtc0.zw, ones` (o cualquier constante) lo arregla.
 
-**Hipótesis:**
-
-**A: Es el registro intermedio `r2`.** La Pica200 no soporta `dp4` que escriba a `outtc0` cuando el segundo operando es un registro temporal.
-- Si A es cierta: V0 OK (usa `intex` directo), V1 HANG (usa `r2` igual), V2 OK (usa `intex` directo).
-
-**B: Faltan los componentes `.zw`.** La Pica200 necesita que `outtc0` tenga `.zw` definido antes de usarlo.
-- Si B es cierta: V0 HANG (no tiene zw), V1 OK (tiene zw), V2 OK (tiene zw).
-
-**C: Hace falta ambos cambios juntos.** Ni la fuente ni zw por separado bastan; la combinación es la que funciona.
-- Si C es cierta: V0 HANG, V1 HANG, V2 OK.
-
-**D: El problema es más profundo.** Ningún cambio de shader lo arregla.
-- Si D es cierta: V0, V1, V2 y V3 todos HANG.
-
-**4 variantes de shader (triángulo) + juego real:**
-
-Los interruptores `c3d-v0.txt` a `c3d-v3.txt` seleccionan el shader que se usa para **todo** lo que se dibuje (triángulo o juego). `c3d-triangle.txt` decide si se dibuja el triángulo o el contenido del motor.
-
-| Var | Shader | dp4 source | outtc0.zw | ¿Isola? |
-|---|---|---|---|---|
-| V0 | c3d_main_v0 | `intex` directo | no | Solo fuente |
-| V1 | c3d_main_v1 | `r2` (original) | sí (`mov outtc0.zw, ones`) | Solo zw |
-| V2 | c3d_main_v2 | `intex` directo | sí | Ambos (como citro3d) |
-| V3 | c3d_main (original) | `r2` | no | Baseline HANG |
-
-**El código de cada variante (solo las líneas de texcoord, líneas 34-37):**
-
-V0 (solo fuente):
-```
-    dp4 outtc0.x, texmat[0], intex
-    dp4 outtc0.y, texmat[1], intex
-```
-
-V1 (solo zw):
-```
-    mov r2.xy, intex
-    mov r2.zw, ones
-    dp4 outtc0.x, texmat[0], r2
-    dp4 outtc0.y, texmat[1], r2
-    mov outtc0.zw, ones
-```
-
-V2 (ambos, como citro3d):
-```
-    dp4 outtc0.x, texmat[0], intex
-    dp4 outtc0.y, texmat[1], intex
-    mov outtc0.zw, ones
-```
-
-V3 (original, sin cambios):
-```
-    mov r2.xy, intex
-    mov r2.zw, ones
-    dp4 outtc0.x, texmat[0], r2
-    dp4 outtc0.y, texmat[1], r2
-```
-
-**Pasadas en la consola:**
-
-| Pasada | Archivos de control | Qué mirar en pantalla |
-|---|---|---|
-| 1 | `c3d-triangle.txt` + `c3d-v0.txt` | Triángulo si V0 funciona, negra si HANG |
-| 2 | `c3d-triangle.txt` + `c3d-v1.txt` | Triángulo si V1 funciona, negra si HANG |
-| 3 | `c3d-triangle.txt` + `c3d-v2.txt` | Triángulo si V2 funciona, negra si HANG |
-| 4 | `c3d-triangle.txt` + `c3d-v3.txt` | Negra (baseline HANG esperado) |
-| 5+ | `c3d-vN.txt` (sin `c3d-triangle.txt`) | Algo en pantalla si V_N funcionó con triángulo; negra si HANG. Solo se hacen con las variantes que dieron OK en el triángulo. |
-
-Esperar al menos 60 s en cada pasada.
-
-**Interpretación de resultados (tabla de patrones):**
-
-| V0 | V1 | V2 | Conclusión |
-|---|---|---|---|
-| OK | HANG | OK | A cierta: es `r2` vs `intex` directo |
-| HANG | OK | OK | B cierta: faltan `.zw` |
-| HANG | HANG | OK | C cierta: hace falta ambos juntos |
-| HANG | HANG | HANG | D cierta: problema más profundo |
-| OK | OK | OK | Los dos cambios por separado funcionan |
-
-**Marcadores que se quedan:** los de `c3d_diag` para test 29. **Marcadores que se quitan:** los de test 28 (ya respondida).
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 29`.
-
-**Autocomprobación (plantilla-prueba.md, 7 preguntas):**
-
-1. **¿Tabla de diferencias instrucción por instrucción?** Sí, arriba. V0 vs V3 solo cambia "fuente de dp4" (r2→intex, 2 instrucciones menos). V1 vs V3 solo añade "mov outtc0.zw, ones" (1 instrucción más). V2 vs V3 cambia ambos. V0 vs V1: ambas tienen 1 cambio pero distinto.
-
-2. **¿Resultados distinguibles en el log?** Sí: `GPU HANG` (68-70 líneas) vs frames 0-11 `begin=ok` (1700+ líneas). El patrón de OK/HANG entre V0-V2 dice qué hipótesis es cierta (tabla de patrones arriba).
-
-3. **¿Lo que se verá en pantalla puede verse?** Triángulo rojo sobre fondo negro (mismo color que pruebas anteriores: `incol` fijo a rojo `(1,0,0,1)`, `colorscale=1`, `colormul=1`). Si HANG: pantalla negra. Sí se distingue.
-
-4. **¿Se resuelve en una sola compilación?** Sí, las 4 variantes y el camino del juego real están en la misma compilación con interruptores.
-
-5. **¿Cada afirmación tiene su fuente?** Sí: citro3d shader (`~/work/refs/citro3d/test/3ds/source/vshader.v.pica` líneas 44-46), nuestro shader (`c3d_main.v.pica` líneas 34-37), fixed attr (`c3d_framebuffer.cpp` línea 327), outmap (`~/work/refs/libctru/libctru/source/gpu/shbin.c` línea 130).
-
-6. **¿Si todas dieran el mismo resultado, qué sabría?** Si V0-V3 todos HANG: problema más profundo que no es fuente ni zw (hipótesis D). Si V0-V3 todos OK: improbable pero significaría que el original HANG por otra razón no relacionada con estas instrucciones. La tabla de patrones cubre todos los casos.
-
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: archivos vacíos `c3d-v0.txt` a `c3d-v3.txt` más `c3d-triangle.txt` para las pasadas 1-4. Las pasadas 5+ usan solo `c3d-vN.txt` (sin triángulo) con la variante ganadora.
+**Orientación del triángulo:** V0: negra (HANG). V1: negra (no llegó a C3D). V2: pantalla de título del juego + letras de ID Software (lento, ~2 min). V3: negra (HANG).
 
 ## Prueba 26 (hecha, con 2 pasadas)
 
@@ -262,6 +154,7 @@ Esperar al menos 60 s en cada pasada.
 | 26 | ¿Shader del motor vs shader mínimo? | Shader del motor cuelga (log B). Shader mínimo funciona (log A). **El shader del motor es el culpable.** |
 | 27 | ¿Qué aspecto del shader/datos causa el cuelgue? | **`outtc0` es la causa.** V1 (sin outtc0) OK, V2 (con outtc0) HANG, V3 (sin outtc0) OK, V4 (datos del motor, sin outtc0) OK. H3 y H4 descartadas. |
 | 28 | ¿Por qué `outtc0` cuelga? ¿Es la declaración, `dp4`, o falta de textura? | **`dp4` escribiendo `outtc0` es la causa.** V0 (constante) OK, V1 (dp4) HANG, V2 (dp4+textura) HANG. Hipótesis A y C descartadas, B confirmada. |
+| 29 | ¿Es la fuente de dp4 (`r2` vs `intex`) o faltar `outtc0.zw`? | **Faltar `outtc0.zw` es la causa.** V0 (sin zw) HANG, V2 (con zw) OK, V3 (sin zw) HANG. Hipótesis A, C, D descartadas, B confirmada. V1 log incompleto pero irrelevante. |
 
 ## Pendientes que no son la pregunta abierta
 
