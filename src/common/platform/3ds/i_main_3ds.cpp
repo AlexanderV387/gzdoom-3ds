@@ -61,7 +61,7 @@ void N3DS_Log(const char *text)
 long long N3DS_ElapsedMs()
 {
 	u64 now = svcGetSystemTick();
-	return (long long)((now - g_StartTick) / 1000);
+	return (long long)((now - g_StartTick) / (SYSCLOCK_ARM11 / 1000));
 }
 
 // fflush only hands the text to the FS service; fsync (FSFILE_Flush) puts it on the SD card.

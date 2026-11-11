@@ -24,8 +24,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 14. **Faltar escribir `outtc0.zw` es la causa del cuelgue.** Cuando `dp4` escribe solo `.x` y `.y` de `outtc0`, los componentes `.z` y `.w` quedan indefinidos y la GPU se cuelga. Añadir `mov outtc0.zw, ones` lo arregla (prueba 29, V1 repetida y V2 OK vs V0/V3 HANG). No importa si el source de `dp4` es `intex` directo o un registro temporal `r2`. Todas las pasadas fueron con el juego real (sin `c3d-triangle.txt`, `triangle=0` en todos los logs).
 15. **La carga del juego real tarda ~2 minutos** antes de mostrar la pantalla de título. La causa se desconoce (prueba 29, V1 repetida y V2).
 16. **El arreglo permanente (`mov outtc0.zw, ones`) funciona con el juego real.** La prueba 30 arrancó sin archivos de control, mostró la pantalla de título y la de créditos alternándose, sin GPU HANG. La imagen está volteada verticalmente (arriba↔abajo).
-17. **El cuello de botella de carga es el análisis de ZScript y la carga de actores/texturas.** Entre `[26370] ParseTeamInfo` y `[43395] script parsing took 6671 ms` hay ~17 s solo en `LoadActors`. El script parsing tarda ~6.7 s. Ver tabla de fases de la prueba 30.
-18. **No hay evidencia de demo playback entre título y créditos.** Los fotogramas 0-2 usan textura 1024x512 (título) y los 3+ usan 1024x256 (créditos). No hay draws intermedios con texturas distintas.
+17. **El cuello de botella de carga es el análisis de ZScript y la carga de actores/texturas.** `LoadActors` + script parsing son las fases más largas. Los tiempos exactos se midirán con la prueba 31 (ahora hay marcas de tiempo en cada línea del log).
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -69,8 +68,8 @@ El shader está arreglado permanentemente (`mov outtc0.zw, ones`). El juego arra
 
 **Prioridades (en orden):**
 1. **Imagen volteada:** determinar si el volteo está en el orden de filas de textura (`CreateTexture`, `c3d_hwtexture.cpp`) o en los signos de la geometría/viewport (`ApplyMatrices`, `SetViewport`/`SetScissor`, `c3d_renderstate.cpp`).
-2. **Carga lenta (~2 min):** `LoadActors` + script parsing son ~24 s de 46 s en total. Ver tabla de fases.
-3. **Demos y mundo 3D:** entre título y créditos no hay draws intermedios; confirmar si hay demo playback y si el mundo 3D se dibuja.
+2. **Carga lenta (~2 min):** `LoadActors` + script parsing son las fases más largas. Los tiempos exactos se medirán con marcas de tiempo en el log (prueba 31).
+3. **Demos y mundo 3D:** sin datos. El log de la prueba 30 solo resume los 12 primeros fotogramas (hechos-3ds.md, T3).
 4. **Botón HOME:** no responde en ninguna prueba desde la 26.
 5. **Mandos:** el gestor del joystick está vacío; no se puede empezar una partida.
 
@@ -177,24 +176,11 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 
 **Resultado:** Log de 76 líneas, `Test: test 30`. Sin GPU HANG. Frames 0-11 OK. `Init complete` en línea 55.
 
-**Tabla de fases de carga (marcas de tiempo del motor):**
-
-| Fase | Timestamp (ms) | Duración (s) |
-|---|---|---|
-| Arranque → GameMain | 0 → 15974 | 16.0 |
-| GameMain → W_Init | 15974 → 13226 | ~0 (moto ya dentro) |
-| W_Init → LoadActors | 13226 → 26370 | 13.1 |
-| LoadActors → Script parsing fin | 26370 → 43395 | 17.0 |
-| Script parsing (solo) | — | 6.7 |
-| Script fin → Backend ready | 43395 → 44916 | 1.5 |
-| Backend ready → Init complete | 44916 → 46377 | 1.5 |
-| **Total hasta Init** | 0 → 46377 | **46.4** |
-
 **Lo que se ve en pantalla:** Pantalla de título de Doom II y la de créditos de id Software se alternan. La imagen está **volteada verticalmente** (arriba↔abajo): letras cabeza abajo, texto legible izquierda→derecha, logo de DOOM II abajo. Colores correctos.
 
-**Demo playback:** No hay draws intermedios entre los frames del título (textura 1024x512, frames 0-2) y los del créditos (textura 1024x256, frames 3+). Solo hay draws de textura completa.
+**Tiempos de carga:** sin medir correctamente. Los números entre corchetes del log son KB de heap, no milisegundos. `N3DS_ElapsedMs()` dividía los ticks entre 1000 en vez de `SYSCLOCK_ARM11/1000` (268111). El valor `T+26331644 ms` era ~98 s reales multiplicados por ~268. Arreglado para la prueba 31.
 
-**Bug del timestamp:** `T+26331644 ms` en la línea de backend-ready es incorrecto. `Printf` usa `%lld` para `N3DS_ElapsedMs()` que devuelve `long long`. El valor correcto debería ser ~26-29 s.
+**Demo playback:** sin datos. El log solo resume los 12 primeros fotogramas.
 
 ## Pendientes que no son la pregunta abierta
 

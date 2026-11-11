@@ -21,6 +21,7 @@ bool NoDraw = false;
 bool NoTex = false;
 bool Triangle = false;
 bool MinimalShader = false;
+bool TestFlip = false;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -62,7 +63,8 @@ void Init()
 	NoTex = Exists("c3d-notex.txt");
 	Triangle = Exists("c3d-triangle.txt");
 	MinimalShader = Exists("c3d-minimal-shader.txt");
-	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d", NoDraw, NoTex, Triangle, MinimalShader);
+	TestFlip = Exists("c3d-testflip.txt");
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d", NoDraw, NoTex, Triangle, MinimalShader, TestFlip);
 }
 
 bool HangReported()

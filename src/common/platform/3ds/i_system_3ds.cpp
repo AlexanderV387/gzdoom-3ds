@@ -89,12 +89,13 @@ void I_PrintStr(const char *cp)
 		else if (*srcp == 0x1d || *srcp == 0x1e || *srcp == 0x1f) srcp++;
 		else printData += *srcp++;
 	}
-	// Each new line starts with the heap in use (KB): where the memory goes while loading.
+	// Each new line starts with the elapsed time (ms) and the heap in use (KB):
+	// when each phase runs and where the memory goes while loading.
 	static bool lineStart = true;
 	if (lineStart && printData.Len() > 0)
 	{
-		char prefix[16];
-		snprintf(prefix, sizeof(prefix), "[%6u] ", N3DS_HeapInUseKB());
+		char prefix[64];
+		snprintf(prefix, sizeof(prefix), "[T+%6lld  heap=%5uKB] ", N3DS_ElapsedMs(), N3DS_HeapInUseKB());
 		N3DS_Log(prefix);
 	}
 	N3DS_Log(printData.GetChars());
