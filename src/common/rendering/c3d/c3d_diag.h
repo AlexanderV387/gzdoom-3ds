@@ -9,8 +9,8 @@
 **   c3d-notex.txt         draws without textures (vertex colour only)
 **   c3d-triangle.txt      instead of the engine's 2D, one fixed red triangle per frame
 **   c3d-minimal-shader.txt use the simple_tri shader (not the engine's) for the test triangle
-**   c3d-v0.txt ... c3d-v2.txt test 28 variants (V0=const outtc0, V1=engine dp4 baseline,
-**                                              V2=engine dp4 + dummy 1x1 texture bound)
+**   c3d-v0.txt ... c3d-v3.txt test 29 variants (V0=dp4 intex direct no zw, V1=dp4 r2 with zw,
+**                                              V2=dp4 intex direct with zw, V3=original baseline)
 **
 ** All lines start with "[C3D]" and are flushed to the SD card at once.
 **
@@ -31,7 +31,7 @@ extern bool NoDraw;
 extern bool NoTex;
 extern bool Triangle;
 extern bool MinimalShader;
-extern int Test28Variant;			// -1 = no variant switch; 0-2 = V0-V2
+extern int Test29Variant;			// -1 = no variant switch; 0-3 = V0-V3
 
 void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

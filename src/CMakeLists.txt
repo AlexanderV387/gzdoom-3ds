@@ -1337,20 +1337,40 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" )
 		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o"
 		DEPENDS "${N3DS_SIMPLETRI_SOURCE}"
 		VERBATIM )
-	# Test 28: variant shader to isolate whether outtc0 itself, dp4, or missing texture causes the GPU hang.
-	set( N3DS_CONSTTC_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/c3d/c3d_consttc.v.pica" )
+	# Test 29: variant shaders to isolate whether dp4 source (r2 vs intex direct) or missing
+	# outtc0.zw write is the cause of the GPU hang. V0=intex direct no zw, V1=r2 with zw,
+	# V2=both (like citro3d), V3=original baseline (c3d_main.v.pica, no separate file needed).
+	set( N3DS_V0_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/c3d/c3d_v0.v.pica" )
 	add_custom_command(
-		OUTPUT "${N3DS_SHADER_DIR}/c3d_consttc_shbin.o" "${N3DS_SHADER_DIR}/c3d_consttc_shbin.h"
+		OUTPUT "${N3DS_SHADER_DIR}/c3d_v0_shbin.o" "${N3DS_SHADER_DIR}/c3d_v0_shbin.h"
 		COMMAND "${CMAKE_COMMAND}" -E make_directory "${N3DS_SHADER_DIR}"
-		COMMAND "${N3DS_PICASSO}" -o "${N3DS_SHADER_DIR}/c3d_consttc.shbin" "${N3DS_CONSTTC_SOURCE}"
-		COMMAND sh -c "\"${N3DS_BIN2S}\" -a 4 -H \"${N3DS_SHADER_DIR}/c3d_consttc_shbin.h\" \"${N3DS_SHADER_DIR}/c3d_consttc.shbin\" > \"${N3DS_SHADER_DIR}/c3d_consttc_shbin.s\""
-		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_consttc_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_consttc_shbin.o"
-		DEPENDS "${N3DS_CONSTTC_SOURCE}"
+		COMMAND "${N3DS_PICASSO}" -o "${N3DS_SHADER_DIR}/c3d_v0.shbin" "${N3DS_V0_SOURCE}"
+		COMMAND sh -c "\"${N3DS_BIN2S}\" -a 4 -H \"${N3DS_SHADER_DIR}/c3d_v0_shbin.h\" \"${N3DS_SHADER_DIR}/c3d_v0.shbin\" > \"${N3DS_SHADER_DIR}/c3d_v0_shbin.s\""
+		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_v0_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_v0_shbin.o"
+		DEPENDS "${N3DS_V0_SOURCE}"
 		VERBATIM )
-	add_custom_target( n3ds_shader DEPENDS "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_main_shbin.h" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.h" "${N3DS_SHADER_DIR}/c3d_consttc_shbin.o" "${N3DS_SHADER_DIR}/c3d_consttc_shbin.h" )
+	set( N3DS_V1_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/c3d/c3d_v1.v.pica" )
+	add_custom_command(
+		OUTPUT "${N3DS_SHADER_DIR}/c3d_v1_shbin.o" "${N3DS_SHADER_DIR}/c3d_v1_shbin.h"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${N3DS_SHADER_DIR}"
+		COMMAND "${N3DS_PICASSO}" -o "${N3DS_SHADER_DIR}/c3d_v1.shbin" "${N3DS_V1_SOURCE}"
+		COMMAND sh -c "\"${N3DS_BIN2S}\" -a 4 -H \"${N3DS_SHADER_DIR}/c3d_v1_shbin.h\" \"${N3DS_SHADER_DIR}/c3d_v1.shbin\" > \"${N3DS_SHADER_DIR}/c3d_v1_shbin.s\""
+		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_v1_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_v1_shbin.o"
+		DEPENDS "${N3DS_V1_SOURCE}"
+		VERBATIM )
+	set( N3DS_V2_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/c3d/c3d_v2.v.pica" )
+	add_custom_command(
+		OUTPUT "${N3DS_SHADER_DIR}/c3d_v2_shbin.o" "${N3DS_SHADER_DIR}/c3d_v2_shbin.h"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${N3DS_SHADER_DIR}"
+		COMMAND "${N3DS_PICASSO}" -o "${N3DS_SHADER_DIR}/c3d_v2.shbin" "${N3DS_V2_SOURCE}"
+		COMMAND sh -c "\"${N3DS_BIN2S}\" -a 4 -H \"${N3DS_SHADER_DIR}/c3d_v2_shbin.h\" \"${N3DS_SHADER_DIR}/c3d_v2.shbin\" > \"${N3DS_SHADER_DIR}/c3d_v2_shbin.s\""
+		COMMAND "${CMAKE_C_COMPILER}" -march=armv6k -mfloat-abi=hard -c "${N3DS_SHADER_DIR}/c3d_v2_shbin.s" -o "${N3DS_SHADER_DIR}/c3d_v2_shbin.o"
+		DEPENDS "${N3DS_V2_SOURCE}"
+		VERBATIM )
+	add_custom_target( n3ds_shader DEPENDS "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_main_shbin.h" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.h" "${N3DS_SHADER_DIR}/c3d_v0_shbin.o" "${N3DS_SHADER_DIR}/c3d_v0_shbin.h" "${N3DS_SHADER_DIR}/c3d_v1_shbin.o" "${N3DS_SHADER_DIR}/c3d_v1_shbin.h" "${N3DS_SHADER_DIR}/c3d_v2_shbin.o" "${N3DS_SHADER_DIR}/c3d_v2_shbin.h" )
 	add_dependencies( zdoom n3ds_shader )
-	set_source_files_properties( "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_consttc_shbin.o" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE )
-	target_sources( zdoom PRIVATE "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_consttc_shbin.o" )
+	set_source_files_properties( "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_v0_shbin.o" "${N3DS_SHADER_DIR}/c3d_v1_shbin.o" "${N3DS_SHADER_DIR}/c3d_v2_shbin.o" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE )
+	target_sources( zdoom PRIVATE "${N3DS_SHADER_DIR}/c3d_main_shbin.o" "${N3DS_SHADER_DIR}/c3d_simpletri_shbin.o" "${N3DS_SHADER_DIR}/c3d_v0_shbin.o" "${N3DS_SHADER_DIR}/c3d_v1_shbin.o" "${N3DS_SHADER_DIR}/c3d_v2_shbin.o" )
 	target_include_directories( zdoom PRIVATE "${N3DS_SHADER_DIR}" common/rendering/c3d common/platform/3ds )
 	target_link_libraries( zdoom citro3d )
 	target_link_options( zdoom PRIVATE "-Wl,-Map,${CMAKE_BINARY_DIR}/uzdoom.map" )
