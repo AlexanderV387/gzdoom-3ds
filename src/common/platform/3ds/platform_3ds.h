@@ -15,6 +15,7 @@
 void N3DS_Log(const char *text);			// appends to N3DS_DATA_DIR/log.txt
 void N3DS_LogFlush();
 void N3DS_LogMemory(const char *stage);
+long long N3DS_ElapsedMs();			// milliseconds since program start
 unsigned N3DS_HeapInUseKB();	// heap and linear memory, into the log
 
 // Diagnostic: log heap state (in use, free, chunk count, trimmable) at a phase boundary.

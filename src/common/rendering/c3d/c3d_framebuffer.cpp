@@ -13,9 +13,6 @@
 #include "c3d_diag.h"
 #include "c3d_main_shbin.h"
 #include "c3d_simpletri_shbin.h"
-#include "c3d_v0_shbin.h"
-#include "c3d_v1_shbin.h"
-#include "c3d_v2_shbin.h"
 
 #include "flatvertices.h"
 #include "hw_skydome.h"
@@ -48,29 +45,6 @@ static shaderProgram_s g_SimpletriProgram;
 static int g_SimpletriUniform_projection;
 static C3D_Mtx g_SimpletriProjection;
 static float *g_SimpletriVertices;
-
-// Test 29: variant shaders to isolate whether dp4 source (r2 vs intex) or missing outtc0.zw
-// write is the cause of the GPU hang. V3 is the original engine shader (ShaderProgram above).
-static DVLB_s *g_V0DVLB;
-static shaderProgram_s g_V0Program;
-static int g_V0Uniform_mvp;
-static int g_V0Uniform_colorscale;
-static int g_V0Uniform_colormul;
-static int g_V0Uniform_texmat;
-
-static DVLB_s *g_V1DVLB;
-static shaderProgram_s g_V1Program;
-static int g_V1Uniform_mvp;
-static int g_V1Uniform_colorscale;
-static int g_V1Uniform_colormul;
-static int g_V1Uniform_texmat;
-
-static DVLB_s *g_V2DVLB;
-static shaderProgram_s g_V2Program;
-static int g_V2Uniform_mvp;
-static int g_V2Uniform_colorscale;
-static int g_V2Uniform_colormul;
-static int g_V2Uniform_texmat;
 
 C3DFrameBuffer *Get()
 {
@@ -105,20 +79,6 @@ void RunDeferredFrees()
 	(GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
 	GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | \
 	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
-
-// Test 29: helper to free a variant shader's DVLB and program.
-static void FreeVariantShader(DVLB_s **dvlb, shaderProgram_s *prog)
-{
-	if (*dvlb != nullptr)
-	{
-		shaderProgramFree(prog);
-		DVLB_Free(*dvlb);
-		*dvlb = nullptr;
-	}
-}
-
-// Test 29: lazy init of variant shaders V0-V2. Forward declared; defined below.
-static void InitVariantShaders();
 
 C3DFrameBuffer::C3DFrameBuffer() : DFrameBuffer(400, 240)
 {
@@ -155,11 +115,6 @@ C3DFrameBuffer::~C3DFrameBuffer()
 	}
 	C3D_Fini();
 	TheFrameBuffer = nullptr;
-
-	// Test 29: clean up variant shaders.
-	FreeVariantShader(&g_V0DVLB, &g_V0Program);
-	FreeVariantShader(&g_V1DVLB, &g_V1Program);
-	FreeVariantShader(&g_V2DVLB, &g_V2Program);
 }
 
 void C3DFrameBuffer::InitializeState()
@@ -177,7 +132,8 @@ void C3DFrameBuffer::InitializeState()
 	mLights = new FLightBuffer(mPipelineNbr);
 	mBones = new BoneBuffer(mPipelineNbr);
 
-	Printf("C3D: backend ready, %u KB of linear memory free\n", (unsigned)(linearSpaceFree() / 1024));
+	Printf("C3D: backend ready, %u KB of linear memory free (T+%lld ms)\n",
+		(unsigned)(linearSpaceFree() / 1024), N3DS_ElapsedMs());
 	Diag::Init();
 	Diag::Line("engine shader: DVLE=%d mvp=%d colorscale=%d colormul=%d texmat=%d",
 		ShaderDVLB->numDVLE, Uniforms.mvp, Uniforms.colorscale, Uniforms.colormul, Uniforms.texmat);
@@ -265,70 +221,6 @@ static void SetEngineUniforms(int u_mvp, int u_colorscale, int u_colormul, int u
 
 static void DrawTestTriangle()
 {
-	// Test 29: if a variant switch is present, use it for the triangle.
-	if (Diag::Test29Variant >= 0)
-	{
-		// Lazy init of variant shaders V0-V2 (shared with SelectVariantShader).
-		InitVariantShaders();
-
-		// Init triangle vertices (engine data: clip space, z=-0.5).
-		if (TriangleVertices == nullptr)
-		{
-			static const float v[9] = { -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.f, 0.5f, -0.5f };
-			TriangleVertices = (float *)linearAlloc(sizeof(v));
-			memcpy(TriangleVertices, v, sizeof(v));
-			GSPGPU_FlushDataCache(TriangleVertices, sizeof(v));
-		}
-
-		SetupCommonGPUState();
-
-		// Select shader program and uniform locations for this variant.
-		shaderProgram_s *prog = nullptr;
-		int u_mvp = -1, u_cs = -1, u_cm = -1, u_tm = -1;
-
-		if (Diag::Test29Variant == 0)
-		{
-			prog = &g_V0Program;
-			u_mvp = g_V0Uniform_mvp; u_cs = g_V0Uniform_colorscale;
-			u_cm = g_V0Uniform_colormul; u_tm = g_V0Uniform_texmat;
-		}
-		else if (Diag::Test29Variant == 1)
-		{
-			prog = &g_V1Program;
-			u_mvp = g_V1Uniform_mvp; u_cs = g_V1Uniform_colorscale;
-			u_cm = g_V1Uniform_colormul; u_tm = g_V1Uniform_texmat;
-		}
-		else if (Diag::Test29Variant == 2)
-		{
-			prog = &g_V2Program;
-			u_mvp = g_V2Uniform_mvp; u_cs = g_V2Uniform_colorscale;
-			u_cm = g_V2Uniform_colormul; u_tm = g_V2Uniform_texmat;
-		}
-		else
-		{
-			// V3: original engine shader (baseline HANG).
-			prog = &ShaderProgram;
-			u_mvp = Uniforms.mvp; u_cs = Uniforms.colorscale;
-			u_cm = Uniforms.colormul; u_tm = Uniforms.texmat;
-		}
-
-		C3D_BindProgram(prog);
-		SetEngineUniforms(u_mvp, u_cs, u_cm, u_tm);
-
-		C3D_AttrInfo *ai = C3D_GetAttrInfo();
-		AttrInfo_Init(ai);
-		AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 3);		// v0: position
-		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 1), 0, 0, 0, 0);	// v1: texcoord
-		C3D_FixedAttribSet(AttrInfo_AddFixed(ai, 2), 1, 0, 0, 1);	// v2: red
-		C3D_BufInfo *bi = C3D_GetBufInfo();
-		BufInfo_Init(bi);
-		BufInfo_Add(bi, TriangleVertices, 3 * sizeof(float), 1, 0x0);
-		C3D_DrawArrays(GPU_TRIANGLES, 0, 3);
-		Diag::Draw(false, true);
-		return;
-	}
-
-	// --- Legacy paths (test 26 and before) ---
 	if (Diag::MinimalShader)
 	{
 		// --- Minimal shader path (simple_tri) ---
@@ -428,78 +320,6 @@ static void DrawTestTriangle()
 	Diag::Draw(false, true);
 }
 
-// Test 29: init one variant shader (DVLB + program + uniform locations).
-static void InitOneVariant(DVLB_s **dvlb, shaderProgram_s *prog,
-	int *u_mvp, int *u_cs, int *u_cm, int *u_tm,
-	const char *name, u32 *shbin, size_t shbin_size)
-{
-	*dvlb = DVLB_ParseFile(shbin, shbin_size);
-	shaderProgramInit(prog);
-	shaderProgramSetVsh(prog, &(*dvlb)->DVLE[0]);
-	C3D_BindProgram(prog);
-	*u_mvp = shaderInstanceGetUniformLocation(prog->vertexShader, "mvp");
-	*u_cs = shaderInstanceGetUniformLocation(prog->vertexShader, "colorscale");
-	*u_cm = shaderInstanceGetUniformLocation(prog->vertexShader, "colormul");
-	*u_tm = shaderInstanceGetUniformLocation(prog->vertexShader, "texmat");
-	Diag::Line("%s: DVLE=%d mvp=%d cs=%d cm=%d tm=%d",
-		name, (*dvlb)->numDVLE, *u_mvp, *u_cs, *u_cm, *u_tm);
-}
-
-// Test 29: lazy init of variant shaders V0-V2. Called once from DrawTestTriangle()
-// or SelectVariantShader(). After this, g_V[0-2]DVLB is non-null.
-static void InitVariantShaders()
-{
-	// Already done.
-	if (g_V0DVLB != nullptr) return;
-
-	InitOneVariant(&g_V0DVLB, &g_V0Program, &g_V0Uniform_mvp, &g_V0Uniform_colorscale,
-		&g_V0Uniform_colormul, &g_V0Uniform_texmat, "v0", (u32 *)c3d_v0_shbin, c3d_v0_shbin_size);
-	InitOneVariant(&g_V1DVLB, &g_V1Program, &g_V1Uniform_mvp, &g_V1Uniform_colorscale,
-		&g_V1Uniform_colormul, &g_V1Uniform_texmat, "v1", (u32 *)c3d_v1_shbin, c3d_v1_shbin_size);
-	InitOneVariant(&g_V2DVLB, &g_V2Program, &g_V2Uniform_mvp, &g_V2Uniform_colorscale,
-		&g_V2Uniform_colormul, &g_V2Uniform_texmat, "v2", (u32 *)c3d_v2_shbin, c3d_v2_shbin_size);
-}
-
-// Test 29: select the variant shader for the real engine draw path.
-// When c3d-vN.txt is present without c3d-triangle.txt, the engine's 2D draws
-// should use the variant shader. This binds the correct program and temporarily
-// redirects the global Uniforms locations so ApplyMatrices() writes to the
-// right slots. Returns the saved Uniforms so the caller can restore them.
-static void SelectVariantShader(ShaderUniforms &saved)
-{
-	saved = Uniforms;
-	if (Diag::Test29Variant < 0 || Diag::Test29Variant == 3)
-		return; // original shader, nothing to change
-
-	// Lazy init.
-	InitVariantShaders();
-
-	if (Diag::Test29Variant == 0)
-	{
-		C3D_BindProgram(&g_V0Program);
-		Uniforms.mvp = g_V0Uniform_mvp;
-		Uniforms.colorscale = g_V0Uniform_colorscale;
-		Uniforms.colormul = g_V0Uniform_colormul;
-		Uniforms.texmat = g_V0Uniform_texmat;
-	}
-	else if (Diag::Test29Variant == 1)
-	{
-		C3D_BindProgram(&g_V1Program);
-		Uniforms.mvp = g_V1Uniform_mvp;
-		Uniforms.colorscale = g_V1Uniform_colorscale;
-		Uniforms.colormul = g_V1Uniform_colormul;
-		Uniforms.texmat = g_V1Uniform_texmat;
-	}
-	else
-	{
-		C3D_BindProgram(&g_V2Program);
-		Uniforms.mvp = g_V2Uniform_mvp;
-		Uniforms.colorscale = g_V2Uniform_colorscale;
-		Uniforms.colormul = g_V2Uniform_colormul;
-		Uniforms.texmat = g_V2Uniform_texmat;
-	}
-}
-
 void C3DFrameBuffer::Update()
 {
 	ScreenBegin();
@@ -517,11 +337,7 @@ void C3DFrameBuffer::Update()
 	if (Diag::Triangle) DrawTestTriangle();
 	else
 	{
-		// Test 29: bind variant shader for real engine draws when switch is present.
-		ShaderUniforms saved;
-		SelectVariantShader(saved);
 		Draw2D();	// everything 2D still pending (menus, HUD, console, title)
-		Uniforms = saved;
 	}
 	twod->Clear();
 	C3D_FrameEnd(0);

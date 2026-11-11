@@ -35,6 +35,7 @@
 	mov r2.zw, ones
 	dp4 outtc0.x, texmat[0], r2
 	dp4 outtc0.y, texmat[1], r2
+	mov outtc0.zw, ones
 
 	; The 2D drawer has already turned its colors into R, G, B, A.
 	mul r1, colorscale, incol

@@ -50,11 +50,18 @@ void I_StartupJoysticks();
 u32 __stacksize__ = 1024 * 1024;
 
 static FILE *LogFile;
+static u64 g_StartTick;
 
 void N3DS_Log(const char *text)
 {
 	if (LogFile == nullptr) return;
 	fputs(text, LogFile);
+}
+
+long long N3DS_ElapsedMs()
+{
+	u64 now = svcGetSystemTick();
+	return (long long)((now - g_StartTick) / 1000);
 }
 
 // fflush only hands the text to the FS service; fsync (FSFILE_Flush) puts it on the SD card.
@@ -177,7 +184,10 @@ int main(int argc, char **argv)
 	fprintf(LogFile, "Test: %s\n", N3DS_TEST_ID);
 	N3DS_LogFlush();
 
+	g_StartTick = svcGetSystemTick();
+
 	N3DS_LogMemory("start");
+	fprintf(LogFile, "T+0 ms: start\n");
 	gfxInitDefault();
 
 	setlocale(LC_ALL, "C");
@@ -198,9 +208,12 @@ int main(int argc, char **argv)
 
 	I_StartupJoysticks();
 
+	fprintf(LogFile, "T+%lld ms: GameMain start\n", N3DS_ElapsedMs());
+	fflush(LogFile);
+
 	const int result = GameMain();
 
-	fprintf(LogFile, "Exit: %d\n", result);
+	fprintf(LogFile, "T+%lld ms: GameMain exit %d\n", N3DS_ElapsedMs(), result);
 	if (LogFile) fclose(LogFile);
 	LogFile = nullptr;
 	SDL_Quit();
