@@ -51,6 +51,28 @@ u32 __stacksize__ = 1024 * 1024;
 
 static FILE *LogFile;
 static u64 g_StartTick;
+static aptHookCookie g_AptHookCookie;
+
+static void N3DS_AptHookCallback(APT_HookType hookType, void *param)
+{
+	switch (hookType)
+	{
+		case APTHOOK_ONSUSPEND:
+			N3DS_Log("[APT] suspend\n");
+			N3DS_LogFlush();
+			break;
+		case APTHOOK_ONRESTORE:
+			N3DS_Log("[APT] restore\n");
+			N3DS_LogFlush();
+			break;
+		case APTHOOK_ONEXIT:
+			N3DS_Log("[APT] exit\n");
+			N3DS_LogFlush();
+			break;
+		default:
+			break;
+	}
+}
 
 void N3DS_Log(const char *text)
 {
@@ -189,6 +211,8 @@ int main(int argc, char **argv)
 	N3DS_LogMemory("start");
 	fprintf(LogFile, "T+0 ms: start\n");
 	gfxInitDefault();
+
+	aptHook(&g_AptHookCookie, N3DS_AptHookCallback, NULL);
 
 	setlocale(LC_ALL, "C");
 	if (SDL_Init(0) < 0)

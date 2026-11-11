@@ -45,7 +45,7 @@ The log is synced to the SD card every quarter of a second and after every `[C3D
 
 ## Running
 
-Copy `uzdoom.3dsx` anywhere on the SD card and the game to `sdmc:/3ds/gzdoom/` (`doom2.wad`, or the one named in `iwad.txt`); mods go in `sdmc:/3ds/gzdoom/mods/` (all loaded, by name). Logs: `sdmc:/3ds/gzdoom/log.txt` (each line starts with the heap in use, in KB; allocations of 1 MB or more are listed with their callers) and `fatal.log`. The first lines say which test and commit the log comes from (`Test:`). Read it with `n3ds-ports/tools/catequilla/analiza-log.py log.txt uzdoom-pruebaNN.elf`, which resolves the callers with the ELF of the same test.
+Copy `uzdoom.3dsx` anywhere on the SD card and the game to `sdmc:/3ds/gzdoom/` (`doom2.wad`, or the one named in `iwad.txt`); mods go in `sdmc:/3ds/gzdoom/mods/` (all loaded, by name). Logs: `sdmc:/3ds/gzdoom/log.txt` (each line starts with the heap in use, in KB; allocations of 1 MB or more are listed with their callers) and `fatal.log`. The first lines say which test and commit the log comes from (`Test:`). Read it with the agent's log analyzer (`analiza-log.py log.txt uzdoom-pruebaNN.elf`), which resolves the callers with the ELF of the same test.
 
 ## What the port changes
 

@@ -119,6 +119,11 @@
 #include "wipe.h"
 #include "zwidget/window/window.h"
 
+#ifdef __3DS__
+#include "platform_3ds.h"
+#include "r_videoscale.h"
+#endif
+
 #ifdef __unix__
 #include "i_system.h"  // for SHARE_DIR
 #endif // __unix__
@@ -1272,6 +1277,33 @@ void D_Display ()
 
 	r_UseVanillaTransparency = UseVanillaTransparency(); // [SP] Cache UseVanillaTransparency() call
 	r_renderercaps = GetCaps(); // [SP] Get the current capabilities of the renderer
+
+	// [3DS] Menu zoom diagnosis: log scale/viewport values once when menu is drawn
+#ifdef __3DS__
+	{
+		static bool menuDiagDone = false;
+		EXTERN_CVAR(Float, vid_scalefactor)
+		if (!menuDiagDone && (menuactive == MENU_On || menuactive == MENU_OnNoPause))
+		{
+			menuDiagDone = true;
+			char buf[512];
+			snprintf(buf, sizeof(buf),
+				"[MENU-DIAG] scalemode=%d scalefactor=%.2f screen=%dx%d client=%dx%d twod=%dx%d clean=%dx%d uiscale=%d vp=%d,%d,%dx%d lb=%d,%d,%dx%d\n",
+				(int)vid_scalemode, (double)vid_scalefactor,
+				screen->GetWidth(), screen->GetHeight(),
+				screen->GetClientWidth(), screen->GetClientHeight(),
+				twod->GetWidth(), twod->GetHeight(),
+				CleanXfac, CleanYfac,
+				(int)uiscale,
+				screen->mScreenViewport.left, screen->mScreenViewport.top,
+				screen->mScreenViewport.width, screen->mScreenViewport.height,
+				screen->mOutputLetterbox.left, screen->mOutputLetterbox.top,
+				screen->mOutputLetterbox.width, screen->mOutputLetterbox.height);
+			N3DS_Log(buf);
+			N3DS_LogFlush();
+		}
+	}
+#endif
 
 	if (players[consoleplayer].camera == NULL)
 	{

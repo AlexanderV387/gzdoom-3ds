@@ -27,6 +27,11 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#ifdef __3DS__
+#include <3ds.h>
+#include "platform_3ds.h"
+#endif
+
 #include "basics.h"
 #include "c_buttons.h"
 #include "c_cvars.h"
@@ -683,6 +688,9 @@ void I_GetEvent ()
 
 void I_StartTic ()
 {
+#ifdef __3DS__
+	hidScanInput();
+#endif
 	I_CheckGUICapture ();
 	I_CheckNativeMouse ();
 	I_GetEvent ();
@@ -692,5 +700,17 @@ void I_StartTic ()
 void I_ProcessJoysticks ();
 void I_StartFrame ()
 {
+#ifdef __3DS__
+	extern volatile sig_atomic_t gameloop_abort;
+
+	if (!aptMainLoop())
+	{
+		N3DS_Log("[EXIT] aptMainLoop returned false\n");
+		N3DS_LogFlush();
+		gameloop_abort = true;
+		N3DS_Log("[EXIT] gameloop_abort set\n");
+		N3DS_LogFlush();
+	}
+#endif
 	I_ProcessJoysticks();
 }
