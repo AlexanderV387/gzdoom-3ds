@@ -24,7 +24,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 14. **Faltar escribir `outtc0.zw` es la causa del cuelgue.** Cuando `dp4` escribe solo `.x` y `.y` de `outtc0`, los componentes `.z` y `.w` quedan indefinidos y la GPU se cuelga. Añadir `mov outtc0.zw, ones` lo arregla (prueba 29, V1 repetida y V2 OK vs V0/V3 HANG). No importa si el source de `dp4` es `intex` directo o un registro temporal `r2`. Todas las pasadas fueron con el juego real (sin `c3d-triangle.txt`, `triangle=0` en todos los logs).
 15. **La carga del juego real tarda ~2 minutos** antes de mostrar la pantalla de título. La causa se desconoce (prueba 29, V1 repetida y V2).
 16. **El arreglo permanente (`mov outtc0.zw, ones`) funciona con el juego real.** La prueba 30 arrancó sin archivos de control, mostró la pantalla de título y la de créditos alternándose, sin GPU HANG. La imagen está volteada verticalmente (arriba↔abajo).
-17. **El cuello de botella de carga es el análisis de ZScript y la carga de actores/texturas.** `LoadActors` + script parsing son las fases más largas. Los tiempos exactos se midirán con la prueba 31 (ahora hay marcas de tiempo en cada línea del log).
+17. **Texman.Init es el cuello de botella de carga.** Con los timestamps corregidos de la prueba 31, `Texman.Init: Init texture manager.` tarda ~51 s (53% del total de ~97 s). Le sigue un hueco de binding de teclas (~13.6 s, 14%) y `M_LoadDefaults` (~10 s, 10%).
+18. **El volteo vertical no está en la geometría.** La prueba 31 V0 (`testflip=1`) dibuja un cuadrado rojo en coordenadas (0,0) y uno verde en (0,180). En pantalla, el rojo aparece arriba y el verde abajo: Y crece hacia abajo, igual que en la 3DS. El pipeline geométrico conserva Y correctamente. El volteo debe estar en las texturas (`CreateTexture`, `c3d_hwtexture.cpp`).
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -64,12 +65,12 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-El shader está arreglado permanentemente (`mov outtc0.zw, ones`). El juego arranca y muestra título y créditos alternándose, pero **la imagen está volteada verticalmente** (arriba↔abajo, no girada 180°).
+El shader está arreglado permanentemente (`mov outtc0.zw, ones`). El juego arranca y muestra título y créditos alternándose, pero **la imagen está volteada verticalmente** (arriba↔abajo, no girada 180°). La prueba 31 demostró que el volteo NO está en la geometría (Y se conserva correctamente).
 
 **Prioridades (en orden):**
-1. **Imagen volteada:** determinar si el volteo está en el orden de filas de textura (`CreateTexture`, `c3d_hwtexture.cpp`) o en los signos de la geometría/viewport (`ApplyMatrices`, `SetViewport`/`SetScissor`, `c3d_renderstate.cpp`).
-2. **Carga lenta (~2 min):** `LoadActors` + script parsing son las fases más largas. Los tiempos exactos se medirán con marcas de tiempo en el log (prueba 31).
-3. **Demos y mundo 3D:** sin datos. El log de la prueba 30 solo resume los 12 primeros fotogramas (hechos-3ds.md, T3).
+1. **Imagen volteada:** el volteo está en las texturas. Revisar `CreateTexture` en `c3d_hwtexture.cpp` (líneas 96-110): el orden de filas al copiar (`sy = y * h / ph`) puede estar al revés.
+2. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
+3. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
 4. **Botón HOME:** no responde en ninguna prueba desde la 26.
 5. **Mandos:** el gestor del joystick está vacío; no se puede empezar una partida.
 
@@ -168,7 +169,8 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 | 27 | ¿Qué aspecto del shader/datos causa el cuelgue? | **`outtc0` es la causa.** V1 (sin outtc0) OK, V2 (con outtc0) HANG, V3 (sin outtc0) OK, V4 (datos del motor, sin outtc0) OK. H3 y H4 descartadas. |
 | 28 | ¿Por qué `outtc0` cuelga? ¿Es la declaración, `dp4`, o falta de textura? | **`dp4` escribiendo `outtc0` es la causa.** V0 (constante) OK, V1 (dp4) HANG, V2 (dp4+textura) HANG. Hipótesis A y C descartadas, B confirmada. |
 | 29 | ¿Es la fuente de dp4 (`r2` vs `intex`) o faltar `outtc0.zw`? | **Faltar `outtc0.zw` es la causa.** V0 (sin zw) HANG, V1 repetida (con zw) OK, V2 (con zw) OK, V3 (sin zw) HANG. Todas con juego real. Hipótesis A, C, D descartadas, B confirmada. Error: la 1.ª V1 dio log incompleto y se usó para concluir; corregido con la repetición. |
-| 30 | ¿El arreglo permanente (`mov outtc0.zw, ones`) funciona sin archivos de control? ¿Dónde está el cuello de botella? | ✅ Arreglo confirmado permanente. Juego arranca, muestra título y créditos. Imagen volteada verticalmente. Sin GPU HANG. Cuello de botella: `LoadActors` (~17 s) + script parsing (~6.7 s). Sin demo playback entre título y créditos. Timestamp T+26331644 ms es un bug de formato `%lld` en Printf. |
+| 30 | ¿El arreglo permanente (`mov outtc0.zw, ones`) funciona sin archivos de control? ¿Dónde está el cuello de botella? | ✅ Arreglo confirmado permanente. Juego arranca, muestra título y créditos. Imagen volteada verticalmente. Sin GPU HANG. Timestamp T+26331644 ms era un bug de formato `%lld` en Printf (arreglado para la 31). |
+| 31 | ¿El volteo vertical está en la geometría o en las texturas? | ✅ Geometría OK: Y crece hacia abajo correctamente (V0 con testflip). Volteo está en texturas. Texman.Init es el cuello de botella (~51 s, 53%). Total carga ~97 s. |
 
 ## Prueba 30 (hecha, sin archivos de control)
 
@@ -181,6 +183,43 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 **Tiempos de carga:** sin medir correctamente. Los números entre corchetes del log son KB de heap, no milisegundos. `N3DS_ElapsedMs()` dividía los ticks entre 1000 en vez de `SYSCLOCK_ARM11/1000` (268111). El valor `T+26331644 ms` era ~98 s reales multiplicados por ~268. Arreglado para la prueba 31.
 
 **Demo playback:** sin datos. El log solo resume los 12 primeros fotogramas.
+
+## Prueba 31 (hecha, 2 pasadas, logs analizados)
+
+**Pregunta:** ¿El volteo vertical de la imagen está en la geometría (viewport, coordenadas de vértice) o en las texturas (orden de filas al copiar)?
+
+**Resultado:**
+
+| Pasada | Switch | testflip= | Log | Líneas | Resultado |
+|---|---|---|---|---|---|
+| V0 | `c3d-testflip.txt` | 1 | log-V0.txt | 77 | ✅ Cuadros en posición correcta |
+| V1 | ninguno | 0 | log-V1.txt | 76 | ✅ Título + créditos alternándose, volteados |
+
+**V0** (testflip=1): En pantalla, cuadrado rojo arriba a la izquierda y cuadrado verde abajo a la izquierda. En código (línea 52 del log): rojo en (0,0,60,60), verde en (0,180,60,60). La coordenada Y=0 aparece arriba y Y=180 abajo. **Y crece hacia abajo: correcto.**
+
+**V1** (testflip=0): Igual que la prueba 30: pantalla de título y créditos de id Software alternándose, volteadas verticalmente. Sin GPU HANG.
+
+**Tiempos de carga (con timestamps corregidos):**
+
+| Fase | V0 (s) | V0 (%) | V1 (s) | V1 (%) |
+|---|---|---|---|---|
+| Texman.Init | 51.1 | 52.9% | 51.1 | 52.7% |
+| Key bound gap (bumplight) | 13.6 | 14.1% | 13.6 | 14.0% |
+| M_LoadDefaults | 10.1 | 10.4% | 10.4 | 10.7% |
+| LoadActors | 7.0 | 7.3% | 6.7 | 6.9% |
+| GameMain start | 3.8 | 3.9% | 3.8 | 3.9% |
+| D_CheckNetGame | 3.2 | 3.4% | 3.6 | 3.7% |
+| Total | 96.7 s | | 97.0 s | |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| El pipeline geométrico conserva Y correctamente: (0,0) arriba, (0,180) abajo (V0, log línea 52, fotos) | El volteo está en `CreateTexture` (c3d_hwtexture.cpp): las filas de la textura se copian en orden incorrecto | Alex no confirmó su tiempo manual de carga para comparar con ~97 s de timestamps |
+| Texman.Init tarda ~51 s (53% del total), es el cuello de botella claro (ambos logs, línea 31) | El hueco de 13.6 s entre binding de teclas y Texman.Init es parsing de ZScript o carga de definiciones de actor | Por qué Texman.Init es tan lento; qué hace exactamente dentro |
+| El juego sigue sin GPU HANG con el arreglo permanente (V1, log 76 líneas, `Init complete` línea 55) | | Si el botón HOME respondió (Alex no lo reportó) |
+
+**Veredicto:** El volteo vertical **no** está en la geometría. Está en las texturas. La siguiente prueba debe corregir el orden de filas en `CreateTexture` (`c3d_hwtexture.cpp`).
 
 ## Pendientes que no son la pregunta abierta
 
