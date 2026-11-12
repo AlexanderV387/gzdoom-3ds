@@ -67,14 +67,14 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-La imagen está corregida (prueba 32). La prueba 33 integró `aptMainLoop()` + `hidScanInput()` y confirmó HOME suspende/restaura y los mandos funcionan en MAP01. Falta: que HOME cierre la aplicación (no solo suspenda) y diagnosticar el zoom del menú.
+La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). `aptMainLoop()` devuelve `false` al cerrar y `gameloop_abort` se setea (prueba 34), pero el cierre falla: `quickexit` no rompe el bucle `for(;;)` de `D_DoomLoop()`. Falta: hacer que el cierre funcione de verdad y diagnosticar el zoom del menú.
 
 **Prioridades (en orden):**
-1. **Cierre desde HOME:** `aptMainLoop()` devuelve `false` al cerrar pero el valor se descarta. Conectarlo a `gameloop_abort` para que `D_DoomLoop()` salga (prueba 34).
-2. **Zoom del menú:** diagnosticar qué valores de escala y tamaño se usan al dibujar el menú (prueba 34, solo medir). Arreglo en la 35.
-3. **Rendimiento en partida:** sin datos aún. La prueba 33 jugó MAP01 pero no se midió el rendimiento.
-4. **Carga lenta (~97 s):** `Texman.Init` tarda ~51 s (53%). Investigar por qué cargar el texture manager es tan lento.
-5. **Demos y mundo 3D:** sin datos. Los logs solo resumen los 12 primeros fotogramas (hechos-3ds.md, T3).
+1. **Cierre desde HOME:** poner marcas `[EXIT]` en todo el camino de salida (`D_DoomLoop`, `quickexit`, `GameMain`, limpieza del backend) para ver dónde se para (prueba 35).
+2. **Zoom del menú:** `scalemode=0` (estirar), `scalefactor=1.00`, `screen=400x240` (prueba 34). Arreglo pendiente.
+3. **Rendimiento en partida:** sin datos aún.
+4. **Carga lenta (~97 s):** `Texman.Init` tarda ~52 s (53%).
+5. **Demos y mundo 3D:** sin datos.
 
 Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
@@ -260,34 +260,82 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 
 **Código:** Se quitó el código testflip de `c3d_framebuffer.cpp` (15 líneas) y se aplicó el flip en `c3d_hwtexture.cpp` línea 100.
 
-## Prueba 34 (propuesta)
+## Prueba 34 (hecha, 1 pasada, log analizado)
 
 **Pregunta principal:** ¿Conectar `aptMainLoop()` → `false` con `gameloop_abort = true` hace que el juego salga correctamente al pulsar HOME para cerrar?
 
-**Lo que ya sabemos:**
-- Prueba 33: `aptMainLoop()` + `hidScanInput()` funcionan, HOME suspende/restaura, pero no cierra.
-- Hecho S8: `APTHOOK_ONEXIT` se llama **después** de que `main()` retorna (dentro de `aptExit()`). El log ya está cerrado cuando se ejecuta.
-- `D_DoomLoop()` (`d_main.cpp:1598`) es `for(;;)` infinito. Solo sale si `gameloop_abort` es `true` (línea 1619).
-- `M_Quit()` (`doommenu.cpp:393`) NO settea `gameloop_abort`.
-- `aptMainLoop()` devuelve `false` cuando APT pide que la aplicación termine. Hoy ese valor se descarta en `I_StartFrame()` (`i_input.cpp:704`).
-
-**Hipótesis A:** `aptMainLoop()` devuelve `false` al cerrar desde HOME y setear `gameloop_abort = true` hace que `D_DoomLoop` salga.
-- Log: `[EXIT] aptMainLoop returned false`, `[EXIT] gameloop_abort set`, `GameMain exit`.
-
-**Hipótesis B:** `aptMainLoop()` NO devuelve `false` al cerrar (el sistema mata el proceso directamente).
-- Log: se corta sin marcas `[EXIT]`, idéntico a la prueba 33.
-
 **Segunda pregunta (diagnóstico del menú, solo medir):** ¿Qué valores de escala y tamaño se usan cuando se dibuja el menú?
-- Una vez, al detectar que se dibuja el menú, escribir en el log: `vid_scalemode`, `vid_scalefactor`, `screen->GetWidth()/GetHeight()`, `GetClientWidth()/GetClientHeight()`, `twod->GetWidth()/GetHeight()`, `CleanXfac/CleanYfac`, `uiscale`, `mScreenViewport`, `mOutputLetterbox`.
-- Sin arreglar nada del menú. Solo recopilar datos para la prueba 35.
 
-**Única variable que cambia:** En `I_StartFrame()` (`i_input.cpp`), conectar el retorno de `aptMainLoop()` a `gameloop_abort`. Marcas de diagnóstico del menú en `D_Display()` bajo `#ifdef __3DS__`.
+**Resultado:**
+- Log: 107 líneas, `Test: test 34`, commit 33a453edc.
+- Carga: ~97 s (T+97387 ms, línea 46). Texman.Init ~52 s (53%). Sin GPU HANG, frames 0-11 OK.
+- `[MENU-DIAG]` (línea 77): `scalemode=0 scalefactor=1.00 screen=400x240 client=400x240 twod=400x240 clean=1x1 uiscale=0 vp=0,0,400x240 lb=0,0,400x240`
+- `[APT] suspend` (línea 105): HOME suspendió correctamente.
+- `[EXIT] aptMainLoop returned false` (línea 106): `aptMainLoop()` sí devuelve `false` al pedir cierre.
+- `[EXIT] gameloop_abort set` (línea 107): `gameloop_abort` se setea a `true`.
+- **El log se corta aquí.** No aparece ninguna marca posterior.
+- Alex confirma: "se queda en 'Cerrando el programa suspendido'".
 
-**Pasada:** Una sola. Esperar al título, abrir menú (ver zoom), jugar MAP01, HOME→volver, esperar 60 s, HOME→cerrar, esperar 10 s.
+**Marcas [EXIT] que aparecen:** `[EXIT] aptMainLoop returned false` (l.106), `[EXIT] gameloop_abort set` (l.107).
 
-**Autocomprobación:** 9 preguntas respondidas. Fuentes citadas. Una pasada sin archivos de control.
+**Marcas [EXIT] que NO aparecen (log se corta):** ninguna marca después de l.107. No se ve `quickexit`, salida del bucle, limpieza del backend, ni `GameMain exit`.
 
-## Pendientes que no son la pregunta abierta
+**Análisis:** `I_StartFrame()` setea `gameloop_abort` → el bucle `for(;;)` de `D_DoomLoop()` sigue (`TryRunTics`, `D_Display`, etc.) → llega a `if (gameloop_abort)` (d_main.cpp:1651) → ejecuta `C_DoCommand("quickexit")` → `M_Quit()` solo limpia sonido/pantalla, **no sale del bucle** → el bucle continúa → siguiente iteración llama `I_StartFrame()` otra vez → `aptMainLoop()` vuelve a devolver `false` → bucle infinito. `quickexit` no rompe el bucle.
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| `aptMainLoop()` devuelve `false` al cerrar desde HOME (l.106) | El log se corta porque el sistema mata el proceso tras el suspend | Si el bucle llegó a ejecutar `quickexit` (no hay marca después de l.107) |
+| `gameloop_abort` se setea (l.107) | `quickexit` se ejecuta pero no rompe el bucle: `M_Quit()` solo limpia, no hace `return` ni `break` | Cuánto tiempo pasó entre l.107 y el corte |
+| HOME suspende y restaura (l.105, Alex confirma) | | |
+| Menú: `scalemode=0`, `scalefactor=1.00`, `screen=400x240` (l.77) | | |
+| Imagen correcta, sin GPU HANG (frames 0-11 OK) | | |
+
+## Prueba 35 (propuesta)
+
+**Pregunta principal:** ¿Dónde exactamente se para el camino de salida al pulsar HOME para cerrar, y setear `wantToRestart = true` después de `quickexit` hace que el juego salga?
+
+**Lo que ya sabemos:**
+- Prueba 34: `aptMainLoop()` devuelve `false`, `gameloop_abort` se setea, pero el log se corta sin marcas posteriores.
+- `D_DoomLoop()` (`d_main.cpp:1630`) es `for(;;)`. Solo sale con `return` si `wantToRestart = true` (l.1656-1659).
+- `quickexit` (`doommenu.cpp:408`) llama a `M_Quit()` (l.393) que solo limpia sonido/pantalla. No settea `wantToRestart`, no hace `return`, no rompe el bucle.
+- `D_DoomMain_Internal()` (`d_main.cpp:4376`) llama a `D_DoomLoop()`. Cuando retorna, hace `D_Cleanup()` y vuelve a entrar en `while(1)` (l.4385).
+- `GameMain()` (`d_main.cpp:4402`) llama a `D_DoomMain_Internal()` en un try/catch. Si llega `CExitEvent`, captura el reason y sale.
+- En `i_main_3ds.cpp`, después de `GameMain()` retorna, se llama a `C3D_Fini()`, `gfxExit()`, etc.
+
+**Hipótesis A (demostrada):** `quickexit` se ejecuta pero no rompe el bucle → bucle infinito → el sistema mata el proceso.
+- Marcas esperadas: `[EXIT] gameloop_abort check`, `[EXIT] quickexit called`, `[EXIT] M_Quit done`, `[EXIT] after quickexit return` — todas aparecen repetidamente en el log.
+- NO aparece: `[EXIT] wantToRestart path`, `[EXIT] D_DoomLoop exit`, `[EXIT] D_Cleanup`, `[EXIT] GameMain exit`.
+
+**Hipótesis B (arreglo):** setear `wantToRestart = true` después de `quickexit` hace que el bucle salga.
+- Marcas esperadas: `[EXIT] wantToRestart set`, `[EXIT] D_DoomLoop return`, `[EXIT] D_Cleanup`, `[EXIT] GameMain exit`, `[EXIT] C3D_Fini`, `[EXIT] gfxExit`.
+
+**Solución propuesta (en la misma prueba):** Después de `C_DoCommand("quickexit")` en `d_main.cpp:1653`, añadir `wantToRestart = true;` para romper el bucle.
+
+**Única variable que cambia:** Marcas `[EXIT]` en cada punto del camino de salida + `wantToRestart = true` después de `quickexit`.
+
+**Archivos a modificar:**
+1. `src/d_main.cpp` (línea 1653): añadir `[EXIT]` antes de `quickexit`, después de `quickexit`, y en el camino de `wantToRestart`.
+2. `src/d_main.cpp` (línea 4381): `[EXIT]` en `D_Cleanup` después de `D_DoomLoop()` retorna.
+3. `src/d_main.cpp` (línea 4467): `[EXIT]` en `GameMain` return.
+4. `src/common/platform/3ds/i_main_3ds.cpp`: `[EXIT]` en `C3D_Fini`, `gfxExit`, y fin de `main()`.
+
+**Pasada:** Una sola. Esperar al título, HOME→volver, esperar 60 s, HOME→cerrar, esperar 10 s.
+
+**Autocomprobación (9 preguntas):**
+
+1. **¿Una sola pregunta?** Sí: ¿dónde se para la salida y `wantToRestart = true` la arregla?
+2. **¿Hipótesis con resultados distintos en el log?** Sí: A muestra marcas repetidas sin salida; B muestra todas las marcas de salida en orden.
+3. **¿Una sola variable?** Sí: marcas de diagnóstico + `wantToRestart = true` después de `quickexit`.
+4. **¿Sin cambios en el motor?** Sí, todo bajo `#ifdef __3DS__` en archivos de la plataforma o marcadores de diagnóstico.
+5. **¿Marcadores en archivo de plataforma/backend?** Sí: `d_main.cpp` (motor, pero solo `#ifdef __3DS__` N3DS_Log), `i_main_3ds.cpp` (plataforma).
+6. **¿N3DS_Log + N3DS_LogFlush?** Sí, cada marca termina con `N3DS_LogFlush()`.
+7. **¿Número de test en `n3ds_testinfo.h`?** Sí, el script `docker-build-test.sh 35` lo actualiza.
+8. **¿Pasada definida?** Sí: una pasada, HOME→cerrar, esperar 10 s.
+9. **¿Archivos de control necesarios?** No.
+
+**Entrega comprobada:** (se rellena antes de compilar)
 
 - **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Causa desconocida.
 - **HOME no responde:** en ninguna de las pasadas el botón HOME volvió al menú de la 3DS. En la pasada A del test 26 los fotogramas avanzaban sin cuelgue y tampoco respondió, así que no es por el cuelgue de GPU. Pendiente de investigar.
