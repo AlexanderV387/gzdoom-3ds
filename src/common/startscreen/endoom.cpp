@@ -42,6 +42,10 @@
 #include "g_input.h"
 #include "d_eventbase.h"
 
+#ifdef __3DS__
+#include "platform_3ds.h"
+#endif
+
 // MACROS ------------------------------------------------------------------
 
 // How many ms elapse between blinking text flips. On a standard VGA
@@ -216,6 +220,12 @@ void ConsoleEndoom()
 void ST_Endoom()
 {
 	ConsoleEndoom();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] before RunEndoom"); N3DS_LogFlush();
+#endif
 	int code = RunEndoom();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] RunEndoom returned"); N3DS_LogFlush();
+#endif
 	throw CExitEvent(code);
 }

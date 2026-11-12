@@ -1642,14 +1642,29 @@ void D_DoomLoop ()
 			I_SetFrameTime();
 
 			TryRunTics (); // will run at least one tic
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] TryRunTics done"); N3DS_LogFlush();
+			}
+#endif
 			// Update display, next frame, with current state.
 			I_StartTic ();
 			D_ProcessEvents();
 			D_Display ();
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] D_Display done"); N3DS_LogFlush();
+			}
+#endif
 			S_UpdateMusic();
 
 			if (gameloop_abort)
 			{
+#ifdef __3DS__
+				N3DS_Log("[EXIT] quickexit called"); N3DS_LogFlush();
+#endif
 				C_DoCommand("quickexit");
 			}
 
@@ -4437,6 +4452,9 @@ int GameMain()
 	catch (const CExitEvent &exit)	// This is a regular exit initiated from deeply nested code.
 	{
 		ret = exit.Reason();
+#ifdef __3DS__
+		N3DS_Log("[EXIT] CExitEvent caught"); N3DS_LogFlush();
+#endif
 	}
 	catch (const std::exception &error)
 	{
@@ -4445,6 +4463,9 @@ int GameMain()
 	}
 	// Unless something really bad happened, the game should only exit through this single point in the code.
 	// No more 'exit', please.
+#ifdef __3DS__
+	N3DS_Log("[EXIT] D_Cleanup start"); N3DS_LogFlush();
+#endif
 	D_Cleanup();
 	CloseNetwork();
 	GC::FinalGC = true;
@@ -4464,6 +4485,9 @@ int GameMain()
 	}
 	delete Args;
 	Args = nullptr;
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GameMain returning"); N3DS_LogFlush();
+#endif
 	return ret;
 }
 

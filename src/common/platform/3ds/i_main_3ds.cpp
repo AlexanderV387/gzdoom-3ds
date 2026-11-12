@@ -237,9 +237,11 @@ int main(int argc, char **argv)
 
 	const int result = GameMain();
 
+	N3DS_Log("[EXIT] after GameMain"); N3DS_LogFlush();
 	fprintf(LogFile, "T+%lld ms: GameMain exit %d\n", N3DS_ElapsedMs(), result);
 	if (LogFile) fclose(LogFile);
 	LogFile = nullptr;
+	N3DS_Log("[EXIT] log closed, before gfxExit"); N3DS_LogFlush();
 	SDL_Quit();
 	gfxExit();
 	romfsExit();

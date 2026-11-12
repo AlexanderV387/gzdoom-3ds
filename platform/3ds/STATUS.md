@@ -305,24 +305,25 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 - En la prueba 34 el log se cortó después de `[EXIT] gameloop_abort set`. No sabemos si `quickexit` se ejecutó, si `CExitEvent` se lanzó, si se capturó en `GameMain()`, si la limpieza corrió, o si `main()` llegó a `gfxExit()`.
 
 **Hipótesis A:** `CExitEvent` se lanza y se captura en `GameMain()`, pero la limpieza (`D_Cleanup` a `I_ShutdownGraphics`) tarda o cuelga.
-- Marcas en el log: `[EXIT] quickexit called`, `[EXIT] M_Quit done`, `[EXIT] RunEndoom returned`, `[EXIT] CExitEvent thrown`, `[EXIT] CExitEvent caught ret=N`, luego `[EXIT] D_Cleanup start` pero NO `[EXIT] D_Cleanup done` (o tarda mucho).
+- Marcas en el log: todas las marcas de `M_Quit()` (`DeleteScreenJob`, `S_StopAllChannels`, `S_StopMusic`, `CleanSWDrawer`), `[EXIT] TryRunTics done`, `[EXIT] D_Display done`, `[EXIT] RunEndoom returned`, `[EXIT] CExitEvent thrown`, `[EXIT] CExitEvent caught ret=N`, luego `[EXIT] D_Cleanup start` pero NO `[EXIT] D_Cleanup done`.
 
-**Hipótesis B:** Hay un crash antes de que `CExitEvent` llegue al catch de `GameMain()`: por ejemplo, dentro de `RunEndoom()` (si `showendoom≠0` y no hay eventos), `ConsoleEndoom()`, o en `D_Cleanup()`.
-- Marcas en el log: `[EXIT] CExitEvent thrown` aparece, pero NO `[EXIT] CExitEvent caught`. El log se corta después (crash o abort).
+**Hipótesis B:** Hay un crash antes de que `CExitEvent` llegue al catch de `GameMain()`: dentro de `M_Quit()` (uno de los 4 pasos falla), en `RunEndoom()`, `ConsoleEndoom()`, o en `D_Cleanup()`.
+- Marcas en el log: algunas marcas de `M_Quit()` aparecen pero no todas, o `[EXIT] CExitEvent thrown` aparece pero no `[EXIT] CExitEvent caught`. La última marca indica dónde falló.
 
 **Hipótesis C:** `quickexit` ni siquiera se ejecuta: el bucle no llega a la iteración donde `gameloop_abort` es `true` porque el sistema suspende el proceso antes.
-- Marcas en el log: `[EXIT] gameloop_abort set` aparece, pero NO `[EXIT] quickexit called`. El log se corta sin marcas de `quickexit`.
+- Marcas en el log: `[EXIT] gameloop_abort set` aparece, pero NO `[EXIT] TryRunTics done` (ni `[EXIT] D_Display done`). El log se corta sin marcas de `quickexit`.
 
 **Única variable que cambia:** Marcas `[EXIT]` de diagnóstico en cada punto del camino de salida. No se cambia la lógica del motor.
 
 **Archivos a modificar (todo bajo `#ifdef __3DS__`, solo `N3DS_Log` + `N3DS_LogFlush`):**
-1. `src/d_main.cpp` (l.1651-1654): `[EXIT]` antes de `C_DoCommand("quickexit")` y después (si se llega).
-2. `src/menu/doommenu.cpp` (l.393-400): `[EXIT]` al inicio de `M_Quit()` y antes de `ST_Endoom()`.
-3. `src/common/startscreen/endoom.cpp` (l.216-221): `[EXIT]` antes y después de `RunEndoom()`, y antes de `throw CExitEvent`.
-4. `src/d_main.cpp` (l.4437-4440): `[EXIT]` dentro del catch de `CExitEvent` con el reason.
-5. `src/d_main.cpp` (l.4448): `[EXIT]` antes de `D_Cleanup()` en la limpieza de `GameMain()`.
-6. `src/d_main.cpp` (l.4467): `[EXIT]` antes del `return ret` de `GameMain()`.
-7. `src/common/platform/3ds/i_main_3ds.cpp` (l.238-246): `[EXIT]` después de `GameMain()` retorna, antes de cerrar el log, antes de `gfxExit()`.
+1. `src/d_main.cpp` (l.1644, 1648): `[EXIT]` después de `TryRunTics()` y después de `D_Display()`, solo en la vuelta con `gameloop_abort`.
+2. `src/d_main.cpp` (l.1651-1654): `[EXIT]` antes de `C_DoCommand("quickexit")` y después (si se llega).
+3. `src/menu/doommenu.cpp` (l.393-400): `[EXIT]` después de cada paso: `DeleteScreenJob`, `S_StopAllChannels`, `S_StopMusic`, `CleanSWDrawer`.
+4. `src/common/startscreen/endoom.cpp` (l.216-221): `[EXIT]` antes y después de `RunEndoom()`, y antes de `throw CExitEvent`.
+5. `src/d_main.cpp` (l.4437-4440): `[EXIT]` dentro del catch de `CExitEvent` con el reason.
+6. `src/d_main.cpp` (l.4448): `[EXIT]` antes de `D_Cleanup()` en la limpieza de `GameMain()`.
+7. `src/d_main.cpp` (l.4467): `[EXIT]` antes del `return ret` de `GameMain()`.
+8. `src/common/platform/3ds/i_main_3ds.cpp` (l.238-246): `[EXIT]` después de `GameMain()` retorna, antes de cerrar el log, antes de `gfxExit()`.
 
 **Pasada:** Una sola. Esperar al título (~100 s), HOME→volver, esperar 60 s, HOME→cerrar, esperar 15 s.
 
@@ -333,7 +334,7 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 **Autocomprobación (9 preguntas):**
 
 1. **Tabla de diferencias.** No hay shader ni variantes que comparar. Las tres hipótesis se distinguen por qué marcas `[EXIT]` aparecen en el log y cuál es la última. Cada hipótesis predice un punto distinto donde el log se corta.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `[EXIT] CExitEvent caught` + `[EXIT] D_Cleanup start` pero no el final. B muestra `[EXIT] CExitEvent thrown` pero no `[EXIT] CExitEvent caught` (crash antes del catch). C muestra `[EXIT] gameloop_abort set` pero no `[EXIT] quickexit called`.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra todas las marcas hasta `[EXIT] D_Cleanup start` pero no el final. B muestra marcas de `M_Quit()` incompletas o `[EXIT] CExitEvent thrown` sin `[EXIT] CExitEvent caught`. C muestra `[EXIT] gameloop_abort set` pero ni `[EXIT] TryRunTics done` ni marcas de `M_Quit()`.
 3. **¿Lo que dices que se verá en pantalla puede verse?** No se necesita ver la pantalla: el criterio es el log. La 3DS se queda en "Cerrando el programa suspendido" en todos los casos, pero las marcas en el log distinguen las hipótesis.
 4. **¿Se resuelve en una sola compilación?** Sí: una pasada con todas las marcas activas. Las tres hipótesis se distinguen en el mismo log.
 5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `ST_Endoom()` lanza `CExitEvent` (endoom.cpp:220), el try/catch de `D_DoomLoop()` solo atrapa `CRecoverableError`/`FileSystemException`/`CVMAbortException` (d_main.cpp:1662-1680), `GameMain()` captura `CExitEvent` (d_main.cpp:4437-4439). `aptMainLoop()` devuelve `false` al cerrar (hechos S8, apt.c ~851).

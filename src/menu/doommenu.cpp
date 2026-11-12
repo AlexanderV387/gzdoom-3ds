@@ -52,6 +52,10 @@
 #include "v_font.h"
 #include "vm.h"
 
+#ifdef __3DS__
+#include "platform_3ds.h"
+#endif
+
 EXTERN_CVAR(Int, cl_gfxlocalization)
 EXTERN_CVAR(Bool, m_quickexit)
 EXTERN_CVAR(Bool, saveloadconfirmation) // [mxd]
@@ -393,9 +397,21 @@ void System_M_Dim()
 static void M_Quit()
 {
 	DeleteScreenJob();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DeleteScreenJob done"); N3DS_LogFlush();
+#endif
 	S_StopAllChannels();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] S_StopAllChannels done"); N3DS_LogFlush();
+#endif
 	S_StopMusic(true);
+#ifdef __3DS__
+	N3DS_Log("[EXIT] S_StopMusic done"); N3DS_LogFlush();
+#endif
 	CleanSWDrawer();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] CleanSWDrawer done"); N3DS_LogFlush();
+#endif
 	ST_Endoom();
 }
 
