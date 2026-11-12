@@ -294,46 +294,58 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 
 ## Prueba 35 (propuesta)
 
-**Pregunta principal:** ¿Dónde exactamente se para el camino de salida al pulsar HOME para cerrar, y setear `wantToRestart = true` después de `quickexit` hace que el juego salga?
+**Pregunta:** ¿Dónde exactamente se para el camino de salida al pulsar HOME para cerrar?
 
 **Lo que ya sabemos:**
 - Prueba 34: `aptMainLoop()` devuelve `false`, `gameloop_abort` se setea, pero el log se corta sin marcas posteriores.
-- `D_DoomLoop()` (`d_main.cpp:1630`) es `for(;;)`. Solo sale con `return` si `wantToRestart = true` (l.1656-1659).
-- `quickexit` (`doommenu.cpp:408`) llama a `M_Quit()` (l.393) que solo limpia sonido/pantalla. No settea `wantToRestart`, no hace `return`, no rompe el bucle.
-- `D_DoomMain_Internal()` (`d_main.cpp:4376`) llama a `D_DoomLoop()`. Cuando retorna, hace `D_Cleanup()` y vuelve a entrar en `while(1)` (l.4385).
-- `GameMain()` (`d_main.cpp:4402`) llama a `D_DoomMain_Internal()` en un try/catch. Si llega `CExitEvent`, captura el reason y sale.
-- En `i_main_3ds.cpp`, después de `GameMain()` retorna, se llama a `C3D_Fini()`, `gfxExit()`, etc.
+- `quickexit` (doommenu.cpp:408-411) llama a `M_Quit()` (l.393-400) → `ST_Endoom()` (endoom.cpp:216-221) → `throw CExitEvent(code)` (l.220). La excepción se propaga fuera del `for(;;)` de `D_DoomLoop()` (d_main.cpp:1630) porque el try/catch interno solo atrapa `CRecoverableError`, `FileSystemException` y `CVMAbortException` (l.1662-1683), no `CExitEvent`.
+- `GameMain()` (d_main.cpp:4437-4439) captura `CExitEvent` y setea `ret`. Después hace limpieza (`D_Cleanup`, `I_ShutdownGraphics`, etc., l.4448-4467) y retorna.
+- `main()` en `i_main_3ds.cpp` (l.238-246) cierra el log, llama a `SDL_Quit()`, `gfxExit()`, `romfsExit()` y retorna.
+- `RunEndoom()` (endoom.cpp:143-187) con `showendoom=0` (default, l.58) retorna en l.147 sin entrar al `while(true)`. Solo si `showendoom≠0` entra en un bucle que espera eventos de teclado.
+- En la prueba 34 el log se cortó después de `[EXIT] gameloop_abort set`. No sabemos si `quickexit` se ejecutó, si `CExitEvent` se lanzó, si se capturó en `GameMain()`, si la limpieza corrió, o si `main()` llegó a `gfxExit()`.
 
-**Hipótesis A (demostrada):** `quickexit` se ejecuta pero no rompe el bucle → bucle infinito → el sistema mata el proceso.
-- Marcas esperadas: `[EXIT] gameloop_abort check`, `[EXIT] quickexit called`, `[EXIT] M_Quit done`, `[EXIT] after quickexit return` — todas aparecen repetidamente en el log.
-- NO aparece: `[EXIT] wantToRestart path`, `[EXIT] D_DoomLoop exit`, `[EXIT] D_Cleanup`, `[EXIT] GameMain exit`.
+**Hipótesis A:** `CExitEvent` se lanza y se captura en `GameMain()`, pero la limpieza (`D_Cleanup` a `I_ShutdownGraphics`) tarda o cuelga.
+- Marcas en el log: `[EXIT] quickexit called`, `[EXIT] M_Quit done`, `[EXIT] RunEndoom returned`, `[EXIT] CExitEvent thrown`, `[EXIT] CExitEvent caught ret=N`, luego `[EXIT] D_Cleanup start` pero NO `[EXIT] D_Cleanup done` (o tarda mucho).
 
-**Hipótesis B (arreglo):** setear `wantToRestart = true` después de `quickexit` hace que el bucle salga.
-- Marcas esperadas: `[EXIT] wantToRestart set`, `[EXIT] D_DoomLoop return`, `[EXIT] D_Cleanup`, `[EXIT] GameMain exit`, `[EXIT] C3D_Fini`, `[EXIT] gfxExit`.
+**Hipótesis B:** Hay un crash antes de que `CExitEvent` llegue al catch de `GameMain()`: por ejemplo, dentro de `RunEndoom()` (si `showendoom≠0` y no hay eventos), `ConsoleEndoom()`, o en `D_Cleanup()`.
+- Marcas en el log: `[EXIT] CExitEvent thrown` aparece, pero NO `[EXIT] CExitEvent caught`. El log se corta después (crash o abort).
 
-**Solución propuesta (en la misma prueba):** Después de `C_DoCommand("quickexit")` en `d_main.cpp:1653`, añadir `wantToRestart = true;` para romper el bucle.
+**Hipótesis C:** `quickexit` ni siquiera se ejecuta: el bucle no llega a la iteración donde `gameloop_abort` es `true` porque el sistema suspende el proceso antes.
+- Marcas en el log: `[EXIT] gameloop_abort set` aparece, pero NO `[EXIT] quickexit called`. El log se corta sin marcas de `quickexit`.
 
-**Única variable que cambia:** Marcas `[EXIT]` en cada punto del camino de salida + `wantToRestart = true` después de `quickexit`.
+**Única variable que cambia:** Marcas `[EXIT]` de diagnóstico en cada punto del camino de salida. No se cambia la lógica del motor.
 
-**Archivos a modificar:**
-1. `src/d_main.cpp` (línea 1653): añadir `[EXIT]` antes de `quickexit`, después de `quickexit`, y en el camino de `wantToRestart`.
-2. `src/d_main.cpp` (línea 4381): `[EXIT]` en `D_Cleanup` después de `D_DoomLoop()` retorna.
-3. `src/d_main.cpp` (línea 4467): `[EXIT]` en `GameMain` return.
-4. `src/common/platform/3ds/i_main_3ds.cpp`: `[EXIT]` en `C3D_Fini`, `gfxExit`, y fin de `main()`.
+**Archivos a modificar (todo bajo `#ifdef __3DS__`, solo `N3DS_Log` + `N3DS_LogFlush`):**
+1. `src/d_main.cpp` (l.1651-1654): `[EXIT]` antes de `C_DoCommand("quickexit")` y después (si se llega).
+2. `src/menu/doommenu.cpp` (l.393-400): `[EXIT]` al inicio de `M_Quit()` y antes de `ST_Endoom()`.
+3. `src/common/startscreen/endoom.cpp` (l.216-221): `[EXIT]` antes y después de `RunEndoom()`, y antes de `throw CExitEvent`.
+4. `src/d_main.cpp` (l.4437-4440): `[EXIT]` dentro del catch de `CExitEvent` con el reason.
+5. `src/d_main.cpp` (l.4448): `[EXIT]` antes de `D_Cleanup()` en la limpieza de `GameMain()`.
+6. `src/d_main.cpp` (l.4467): `[EXIT]` antes del `return ret` de `GameMain()`.
+7. `src/common/platform/3ds/i_main_3ds.cpp` (l.238-246): `[EXIT]` después de `GameMain()` retorna, antes de cerrar el log, antes de `gfxExit()`.
 
-**Pasada:** Una sola. Esperar al título, HOME→volver, esperar 60 s, HOME→cerrar, esperar 10 s.
+**Pasada:** Una sola. Esperar al título (~100 s), HOME→volver, esperar 60 s, HOME→cerrar, esperar 15 s.
+
+**Marcadores que se quedan:** los de la pregunta abierta (esta). Marcadores que se quitan: ninguno (no hay preguntas cerradas con marcadores activos).
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 35`.
 
 **Autocomprobación (9 preguntas):**
 
-1. **¿Una sola pregunta?** Sí: ¿dónde se para la salida y `wantToRestart = true` la arregla?
-2. **¿Hipótesis con resultados distintos en el log?** Sí: A muestra marcas repetidas sin salida; B muestra todas las marcas de salida en orden.
-3. **¿Una sola variable?** Sí: marcas de diagnóstico + `wantToRestart = true` después de `quickexit`.
-4. **¿Sin cambios en el motor?** Sí, todo bajo `#ifdef __3DS__` en archivos de la plataforma o marcadores de diagnóstico.
-5. **¿Marcadores en archivo de plataforma/backend?** Sí: `d_main.cpp` (motor, pero solo `#ifdef __3DS__` N3DS_Log), `i_main_3ds.cpp` (plataforma).
-6. **¿N3DS_Log + N3DS_LogFlush?** Sí, cada marca termina con `N3DS_LogFlush()`.
-7. **¿Número de test en `n3ds_testinfo.h`?** Sí, el script `docker-build-test.sh 35` lo actualiza.
-8. **¿Pasada definida?** Sí: una pasada, HOME→cerrar, esperar 10 s.
-9. **¿Archivos de control necesarios?** No.
+1. **Tabla de diferencias.** No hay shader ni variantes que comparar. Las tres hipótesis se distinguen por qué marcas `[EXIT]` aparecen en el log y cuál es la última. Cada hipótesis predice un punto distinto donde el log se corta.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `[EXIT] CExitEvent caught` + `[EXIT] D_Cleanup start` pero no el final. B muestra `[EXIT] CExitEvent thrown` pero no `[EXIT] CExitEvent caught` (crash antes del catch). C muestra `[EXIT] gameloop_abort set` pero no `[EXIT] quickexit called`.
+3. **¿Lo que dices que se verá en pantalla puede verse?** No se necesita ver la pantalla: el criterio es el log. La 3DS se queda en "Cerrando el programa suspendido" en todos los casos, pero las marcas en el log distinguen las hipótesis.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada con todas las marcas activas. Las tres hipótesis se distinguen en el mismo log.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `ST_Endoom()` lanza `CExitEvent` (endoom.cpp:220), el try/catch de `D_DoomLoop()` solo atrapa `CRecoverableError`/`FileSystemException`/`CVMAbortException` (d_main.cpp:1662-1680), `GameMain()` captura `CExitEvent` (d_main.cpp:4437-4439). `aptMainLoop()` devuelve `false` al cerrar (hechos S8, apt.c ~851).
+6. **Si todas las hipótesis dieran el mismo resultado, ¿qué sabría?** Si ninguna marca aparece después de `[EXIT] gameloop_abort set` ni siquiera `[EXIT] quickexit called`, sabría que el proceso se suspende antes de la siguiente iteración del bucle (Hipótesis C). Si aparece `[EXIT] quickexit called` pero no `[EXIT] M_Quit done`, sabría que `M_Quit()` cuelga. Si todas las marcas aparecen hasta el final, sabría que el cierre funciona y el log se corta por cerrar `LogFile` antes de la última marca.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `N3DS_Log` y `N3DS_LogFlush` ya existen (`platform_3ds.h`). `quickexit`, `M_Quit`, `ST_Endoom`, `CExitEvent`, `GameMain` y `main` ya existen. No se crea ninguna función nueva. `doommenu.cpp` y `endoom.cpp` necesitan incluir `platform_3ds.h` bajo `#ifdef __3DS__`.
+9. **¿Qué se ejecuta después de tu cambio?** Camino: `I_StartFrame()` → `aptMainLoop()` devuelve `false` → `gameloop_abort = true` → siguiente iteración → `C_DoCommand("quickexit")` → `M_Quit()` → `ST_Endoom()` → `RunEndoom()` → `throw CExitEvent` → se propaga fuera de `D_DoomLoop()` → lo captura `GameMain()` → `D_Cleanup()` → `I_ShutdownGraphics()` → `return ret` → `main()` cierra log → `gfxExit()`. Cada marca tiene `N3DS_LogFlush()` con `fsync`. Si el log se cierra antes de una marca, esa marca no aparece: por eso hay una marca en `main()` antes de cerrar el log.
+
+**Revisión:** La revisora verificó los 3 puntos corregidos:
+1. Hipótesis B reformulada ("crash antes del catch") → VERIFICADO, válida como hipótesis comprobable
+2. `RunEndoom()` con `showendoom=0` retorna sin entrar al bucle → VERIFICADO (endoom.cpp:145-147)
+3. Autocomprobación p5 cita d_main.cpp:1662-1680 → VERIFICADO (los catches reales son l.1662, 1670, 1678, cerrando en 1683; el contenido es correcto)
 
 **Entrega comprobada:** (se rellena antes de compilar)
 
