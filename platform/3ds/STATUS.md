@@ -28,6 +28,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 18. **El volteo vertical no está en la geometría.** La prueba 31 V0 (`testflip=1`) dibuja un cuadrado rojo en coordenadas (0,0) y uno verde en (0,180). En pantalla, el rojo aparece arriba y el verde abajo: Y crece hacia abajo, igual que en la 3DS. El pipeline geométrico conserva Y correctamente. El volteo debe estar en las texturas (`CreateTexture`, `c3d_hwtexture.cpp`).
 19. **El volteo vertical está en el orden de filas de `CreateTexture`.** La fila 0 de memoria del PICA200 es la parte SUPERIOR de la textura, no la inferior. Cambiar `sy = y * h / ph` a `sy = h - 1 - y * h / ph` (copiar de abajo arriba) corrige la imagen por completo: logo arriba, créditos en orden, letras derechas (prueba 32).
 20. **El motor no llama a `aptMainLoop()` ni a `hidScanInput()`.** El main loop es `GameMain()` → `D_DoomMain_Internal()` con `for(;;)` (d_main.cpp línea 1598). Sin `aptMainLoop()`, `aptHandleJumpToHome()` nunca se ejecuta: el botón HOME no funciona. El input va por SDL, pero `hidScanInput()` no se llama. Los ejemplos de 3ds-examples (`templates/application/source/main.c` líneas 6-28) y todos los ports usan `while(aptMainLoop()) { hidScanInput(); ... }` como patrón estándar (libctru `apt.c` línea 851-856, `hid.c` línea 172-219).
+21. **El cierre desde HOME se para entre `TryRunTics done` y `D_Display done`.** La prueba 35 muestra que el bucle llega a la iteración con `gameloop_abort=true` y `TryRunTics()` completa, pero no llega a `[EXIT] D_Display done`. Las funciones entre ambas marcas son `I_StartTic()` (d_main.cpp:1652), `D_ProcessEvents()` (l.1653) y `D_Display()` (l.1654). Es una de las tres donde se para.
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -67,10 +68,10 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). `aptMainLoop()` devuelve `false` al cerrar y `gameloop_abort` se setea (prueba 34), pero el cierre falla: `quickexit` no rompe el bucle `for(;;)` de `D_DoomLoop()`. Falta: hacer que el cierre funcione de verdad y diagnosticar el zoom del menú.
+La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). El cierre desde HOME se para entre `I_StartTic()`, `D_ProcessEvents()` y `D_Display()` en la iteración con `gameloop_abort=true` (prueba 35). Falta: aislar cuál de las 3 funciones es la culpable, hacer que el cierre funcione de verdad y diagnosticar el zoom del menú.
 
 **Prioridades (en orden):**
-1. **Cierre desde HOME:** poner marcas `[EXIT]` en todo el camino de salida (`D_DoomLoop`, `quickexit`, `GameMain`, limpieza del backend) para ver dónde se para (prueba 35).
+1. **Cierre desde HOME:** aislar si `I_StartTic()`, `D_ProcessEvents()` o `D_Display()` es la que se cuelga (prueba 36). Si es `D_Display()`, probar si el problema es el contexto GPU tras el APT restore.
 2. **Zoom del menú:** `scalemode=0` (estirar), `scalefactor=1.00`, `screen=400x240` (prueba 34). Arreglo pendiente.
 3. **Rendimiento en partida:** sin datos aún.
 4. **Carga lenta (~97 s):** `Texman.Init` tarda ~52 s (53%).
@@ -174,6 +175,7 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 | 30 | ¿El arreglo permanente (`mov outtc0.zw, ones`) funciona sin archivos de control? ¿Dónde está el cuello de botella? | ✅ Arreglo confirmado permanente. Juego arranca, muestra título y créditos. Imagen volteada verticalmente. Sin GPU HANG. Timestamp T+26331644 ms era un bug de formato `%lld` en Printf (arreglado para la 31). |
 | 31 | ¿El volteo vertical está en la geometría o en las texturas? | ✅ Geometría OK: Y crece hacia abajo correctamente (V0 con testflip). Volteo está en texturas. Texman.Init es el cuello de botella (~51 s, 53%). Total carga ~97 s. |
 | 32 | ¿El flip de filas en `CreateTexture` corrige la imagen? | ✅ Sí. Imagen perfecta: logo arriba, créditos en orden, letras derechas. Texman.Init ~52 s (53.4%). HOME sigue sin responder. |
+| 35 | ¿Dónde se para el cierre desde HOME? | ✅ Entre `TryRunTics done` y `D_Display done`: `I_StartTic()`, `D_ProcessEvents()` o `D_Display()`. Hipótesis C descartada (el bucle llega a la iteración). |
 
 ## Prueba 30 (hecha, sin archivos de control)
 
@@ -292,63 +294,35 @@ Alex cronometró [X] minutos manualmente. El timestamp del log da ~97.6 s (~1 mi
 | Menú: `scalemode=0`, `scalefactor=1.00`, `screen=400x240` (l.77) | | |
 | Imagen correcta, sin GPU HANG (frames 0-11 OK) | | |
 
-## Prueba 35 (propuesta)
+## Prueba 35 (hecha, 1 pasada, log analizado)
 
 **Pregunta:** ¿Dónde exactamente se para el camino de salida al pulsar HOME para cerrar?
 
-**Lo que ya sabemos:**
-- Prueba 34: `aptMainLoop()` devuelve `false`, `gameloop_abort` se setea, pero el log se corta sin marcas posteriores.
-- `quickexit` (doommenu.cpp:408-411) llama a `M_Quit()` (l.393-400) → `ST_Endoom()` (endoom.cpp:216-221) → `throw CExitEvent(code)` (l.220). La excepción se propaga fuera del `for(;;)` de `D_DoomLoop()` (d_main.cpp:1630) porque el try/catch interno solo atrapa `CRecoverableError`, `FileSystemException` y `CVMAbortException` (l.1662-1683), no `CExitEvent`.
-- `GameMain()` (d_main.cpp:4437-4439) captura `CExitEvent` y setea `ret`. Después hace limpieza (`D_Cleanup`, `I_ShutdownGraphics`, etc., l.4448-4467) y retorna.
-- `main()` en `i_main_3ds.cpp` (l.238-246) cierra el log, llama a `SDL_Quit()`, `gfxExit()`, `romfsExit()` y retorna.
-- `RunEndoom()` (endoom.cpp:143-187) con `showendoom=0` (default, l.58) retorna en l.147 sin entrar al `while(true)`. Solo si `showendoom≠0` entra en un bucle que espera eventos de teclado.
-- En la prueba 34 el log se cortó después de `[EXIT] gameloop_abort set`. No sabemos si `quickexit` se ejecutó, si `CExitEvent` se lanzó, si se capturó en `GameMain()`, si la limpieza corrió, o si `main()` llegó a `gfxExit()`.
+**Resultado:**
+- Log: 81 líneas, `Test: test 35`, commit 886383d51.
+- Sin GPU HANG, frames 0-11 OK, `Init complete` (l.55). Carga ~97 s.
+- Marcas `[EXIT]` en orden: `[EXIT] aptMainLoop returned false` (l.79), `[EXIT] gameloop_abort set` (l.80), `[EXIT] TryRunTics done` (l.81).
+- **Última marca presente:** `[EXIT] TryRunTics done` (d_main.cpp:1648).
+- **Primera marca ausente:** `[EXIT] D_Display done` (d_main.cpp:1658).
 
-**Hipótesis A:** `CExitEvent` se lanza y se captura en `GameMain()`, pero la limpieza (`D_Cleanup` a `I_ShutdownGraphics`) tarda o cuelga.
-- Marcas en el log: todas las marcas de `M_Quit()` (`DeleteScreenJob`, `S_StopAllChannels`, `S_StopMusic`, `CleanSWDrawer`), `[EXIT] TryRunTics done`, `[EXIT] D_Display done`, `[EXIT] RunEndoom returned`, `[EXIT] CExitEvent thrown`, `[EXIT] CExitEvent caught ret=N`, luego `[EXIT] D_Cleanup start` pero NO `[EXIT] D_Cleanup done`.
+**Código entre la última marca presente y la primera ausente** (d_main.cpp:1652-1654):
+```
+I_StartTic ();       // l.1652: llama hidScanInput() en 3DS
+D_ProcessEvents();   // l.1653: procesa eventos de input
+D_Display ();        // l.1654: renderiza el fotograma (llama al backend GPU)
+```
 
-**Hipótesis B:** Hay un crash antes de que `CExitEvent` llegue al catch de `GameMain()`: dentro de `M_Quit()` (uno de los 4 pasos falla), en `RunEndoom()`, `ConsoleEndoom()`, o en `D_Cleanup()`.
-- Marcas en el log: algunas marcas de `M_Quit()` aparecen pero no todas, o `[EXIT] CExitEvent thrown` aparece pero no `[EXIT] CExitEvent caught`. La última marca indica dónde falló.
+**Análisis:** El bucle llegó a la iteración donde `gameloop_abort` es `true` (Hipótesis C descartada). `TryRunTics()` completó (l.1648 en log). El fallo está entre `TryRunTics done` y `D_Display done`: una de las tres funciones `I_StartTic()`, `D_ProcessEvents()`, o `D_Display()` es donde se para. `D_Display()` es la más pesada (renderizado GPU completo) y ya sabemos que el backend GPU funciona (frames 0-11 OK), pero el contexto puede haber cambiado tras el suspend/restore de APT.
 
-**Hipótesis C:** `quickexit` ni siquiera se ejecuta: el bucle no llega a la iteración donde `gameloop_abort` es `true` porque el sistema suspende el proceso antes.
-- Marcas en el log: `[EXIT] gameloop_abort set` aparece, pero NO `[EXIT] TryRunTics done` (ni `[EXIT] D_Display done`). El log se corta sin marcas de `quickexit`.
+**Conclusión (tres columnas):**
 
-**Única variable que cambia:** Marcas `[EXIT]` de diagnóstico en cada punto del camino de salida. No se cambia la lógica del motor.
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| El bucle llega a la iteración con `gameloop_abort=true` (l.81: `TryRunTics done`) | `D_Display()` es la función que se cuelga: es la más pesada y hace llamadas al backend GPU tras un suspend/restore de APT | Cuál de las 3 funciones (`I_StartTic`, `D_ProcessEvents`, `D_Display`) es exactamente la culpable |
+| Hipótesis C descartada: el proceso no se suspende antes de la siguiente iteración (l.81 aparece) | El contexto GPU puede estar corrupto tras el restore de APT (suspend l.78 → aptMainLoop false l.79) | Si `hidScanInput()` en `I_StartTic()` falla tras el APT restore |
+| El camino de salida está dentro de D_DoomLoop(), no antes (l.79-81 en orden) | | Si el log se corta por fsync fallido o por timeout del sistema |
 
-**Archivos a modificar (todo bajo `#ifdef __3DS__`, solo `N3DS_Log` + `N3DS_LogFlush`):**
-1. `src/d_main.cpp` (l.1644, 1648): `[EXIT]` después de `TryRunTics()` y después de `D_Display()`, solo en la vuelta con `gameloop_abort`.
-2. `src/d_main.cpp` (l.1651-1654): `[EXIT]` antes de `C_DoCommand("quickexit")` y después (si se llega).
-3. `src/menu/doommenu.cpp` (l.393-400): `[EXIT]` después de cada paso: `DeleteScreenJob`, `S_StopAllChannels`, `S_StopMusic`, `CleanSWDrawer`.
-4. `src/common/startscreen/endoom.cpp` (l.216-221): `[EXIT]` antes y después de `RunEndoom()`, y antes de `throw CExitEvent`.
-5. `src/d_main.cpp` (l.4437-4440): `[EXIT]` dentro del catch de `CExitEvent` con el reason.
-6. `src/d_main.cpp` (l.4448): `[EXIT]` antes de `D_Cleanup()` en la limpieza de `GameMain()`.
-7. `src/d_main.cpp` (l.4467): `[EXIT]` antes del `return ret` de `GameMain()`.
-8. `src/common/platform/3ds/i_main_3ds.cpp` (l.238-246): `[EXIT]` después de `GameMain()` retorna, antes de cerrar el log, antes de `gfxExit()`.
 
-**Pasada:** Una sola. Esperar al título (~100 s), HOME→volver, esperar 60 s, HOME→cerrar, esperar 15 s.
-
-**Marcadores que se quedan:** los de la pregunta abierta (esta). Marcadores que se quitan: ninguno (no hay preguntas cerradas con marcadores activos).
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 35`.
-
-**Autocomprobación (9 preguntas):**
-
-1. **Tabla de diferencias.** No hay shader ni variantes que comparar. Las tres hipótesis se distinguen por qué marcas `[EXIT]` aparecen en el log y cuál es la última. Cada hipótesis predice un punto distinto donde el log se corta.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra todas las marcas hasta `[EXIT] D_Cleanup start` pero no el final. B muestra marcas de `M_Quit()` incompletas o `[EXIT] CExitEvent thrown` sin `[EXIT] CExitEvent caught`. C muestra `[EXIT] gameloop_abort set` pero ni `[EXIT] TryRunTics done` ni marcas de `M_Quit()`.
-3. **¿Lo que dices que se verá en pantalla puede verse?** No se necesita ver la pantalla: el criterio es el log. La 3DS se queda en "Cerrando el programa suspendido" en todos los casos, pero las marcas en el log distinguen las hipótesis.
-4. **¿Se resuelve en una sola compilación?** Sí: una pasada con todas las marcas activas. Las tres hipótesis se distinguen en el mismo log.
-5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `ST_Endoom()` lanza `CExitEvent` (endoom.cpp:220), el try/catch de `D_DoomLoop()` solo atrapa `CRecoverableError`/`FileSystemException`/`CVMAbortException` (d_main.cpp:1662-1680), `GameMain()` captura `CExitEvent` (d_main.cpp:4437-4439). `aptMainLoop()` devuelve `false` al cerrar (hechos S8, apt.c ~851).
-6. **Si todas las hipótesis dieran el mismo resultado, ¿qué sabría?** Si ninguna marca aparece después de `[EXIT] gameloop_abort set` ni siquiera `[EXIT] quickexit called`, sabría que el proceso se suspende antes de la siguiente iteración del bucle (Hipótesis C). Si aparece `[EXIT] quickexit called` pero no `[EXIT] M_Quit done`, sabría que `M_Quit()` cuelga. Si todas las marcas aparecen hasta el final, sabría que el cierre funciona y el log se corta por cerrar `LogFile` antes de la última marca.
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
-8. **¿Lo que vas a añadir ya existe?** `N3DS_Log` y `N3DS_LogFlush` ya existen (`platform_3ds.h`). `quickexit`, `M_Quit`, `ST_Endoom`, `CExitEvent`, `GameMain` y `main` ya existen. No se crea ninguna función nueva. `doommenu.cpp` y `endoom.cpp` necesitan incluir `platform_3ds.h` bajo `#ifdef __3DS__`.
-9. **¿Qué se ejecuta después de tu cambio?** Camino: `I_StartFrame()` → `aptMainLoop()` devuelve `false` → `gameloop_abort = true` → siguiente iteración → `C_DoCommand("quickexit")` → `M_Quit()` → `ST_Endoom()` → `RunEndoom()` → `throw CExitEvent` → se propaga fuera de `D_DoomLoop()` → lo captura `GameMain()` → `D_Cleanup()` → `I_ShutdownGraphics()` → `return ret` → `main()` cierra log → `gfxExit()`. Cada marca tiene `N3DS_LogFlush()` con `fsync`. Si el log se cierra antes de una marca, esa marca no aparece: por eso hay una marca en `main()` antes de cerrar el log.
-
-**Revisión:** La revisora verificó los 3 puntos corregidos:
-1. Hipótesis B reformulada ("crash antes del catch") → VERIFICADO, válida como hipótesis comprobable
-2. `RunEndoom()` con `showendoom=0` retorna sin entrar al bucle → VERIFICADO (endoom.cpp:145-147)
-3. Autocomprobación p5 cita d_main.cpp:1662-1680 → VERIFICADO (los catches reales son l.1662, 1670, 1678, cerrando en 1683; el contenido es correcto)
-
-**Entrega comprobada:** (se rellena antes de compilar)
 
 - **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Causa desconocida.
 - **HOME no responde:** en ninguna de las pasadas el botón HOME volvió al menú de la 3DS. En la pasada A del test 26 los fotogramas avanzaban sin cuelgue y tampoco respondió, así que no es por el cuelgue de GPU. Pendiente de investigar.
