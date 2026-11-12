@@ -29,6 +29,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 19. **El volteo vertical está en el orden de filas de `CreateTexture`.** La fila 0 de memoria del PICA200 es la parte SUPERIOR de la textura, no la inferior. Cambiar `sy = y * h / ph` a `sy = h - 1 - y * h / ph` (copiar de abajo arriba) corrige la imagen por completo: logo arriba, créditos en orden, letras derechas (prueba 32).
 20. **El motor no llama a `aptMainLoop()` ni a `hidScanInput()`.** El main loop es `GameMain()` → `D_DoomMain_Internal()` con `for(;;)` (d_main.cpp línea 1598). Sin `aptMainLoop()`, `aptHandleJumpToHome()` nunca se ejecuta: el botón HOME no funciona. El input va por SDL, pero `hidScanInput()` no se llama. Los ejemplos de 3ds-examples (`templates/application/source/main.c` líneas 6-28) y todos los ports usan `while(aptMainLoop()) { hidScanInput(); ... }` como patrón estándar (libctru `apt.c` línea 851-856, `hid.c` línea 172-219).
 21. **El cierre desde HOME se para entre `TryRunTics done` y `D_Display done`.** La prueba 35 muestra que el bucle llega a la iteración con `gameloop_abort=true` y `TryRunTics()` completa, pero no llega a `[EXIT] D_Display done`. Las funciones entre ambas marcas son `I_StartTic()` (d_main.cpp:1652), `D_ProcessEvents()` (l.1653) y `D_Display()` (l.1654). Es una de las tres donde se para.
+22. **`D_Display()` es la función que se cuelga.** La prueba 36 muestra `Before D_Display` en el log pero no `D_Display done`: `I_StartTic()` y `D_ProcessEvents()` completan sin problemas. El cuelgue es dentro de `D_Display()`, probablemente por el contexto GPU tras el APT suspend/restore.
 
 ## Prueba 28 (hecha, 3 pasadas, logs analizados)
 
@@ -68,10 +69,10 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 ## Pregunta abierta
 
-La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). El cierre desde HOME se para entre `I_StartTic()`, `D_ProcessEvents()` y `D_Display()` en la iteración con `gameloop_abort=true` (prueba 35). Prueba 36 en curso: aislar cuál de las 3 funciones es la culpable. Falta: hacer que el cierre funcione de verdad y diagnosticar el zoom del menú.
+La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). El cierre desde HOME se para en `D_Display()` en la iteración con `gameloop_abort=true` (pruebas 35 y 36). Falta: diagnosticar qué dentro de `D_Display()` se cuelga (¿contexto GPU tras APT suspend?) y hacer que el cierre funcione. También diagnosticar el zoom del menú.
 
 **Prioridades (en orden):**
-1. **Cierre desde HOME:** aislar si `I_StartTic()`, `D_ProcessEvents()` o `D_Display()` es la que se cuelga (prueba 36). Si es `D_Display()`, probar si el problema es el contexto GPU tras el APT restore.
+1. **Cierre desde HOME:** `D_Display()` se cuelga (prueba 36). Diagnosticar qué dentro de `D_Display()` es la causa: ¿`C3D_FrameBegin` tras APT suspend?, ¿`DrawElements`?, ¿otro?. Si es el contexto GPU, probar si hay que reinicializar citro3d tras el restore.
 2. **Zoom del menú:** `scalemode=0` (estirar), `scalefactor=1.00`, `screen=400x240` (prueba 34). Arreglo pendiente.
 3. **Rendimiento en partida:** sin datos aún.
 4. **Carga lenta (~97 s):** `Texman.Init` tarda ~52 s (53%).
@@ -176,6 +177,7 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 | 31 | ¿El volteo vertical está en la geometría o en las texturas? | ✅ Geometría OK: Y crece hacia abajo correctamente (V0 con testflip). Volteo está en texturas. Texman.Init es el cuello de botella (~51 s, 53%). Total carga ~97 s. |
 | 32 | ¿El flip de filas en `CreateTexture` corrige la imagen? | ✅ Sí. Imagen perfecta: logo arriba, créditos en orden, letras derechas. Texman.Init ~52 s (53.4%). HOME sigue sin responder. |
 | 35 | ¿Dónde se para el cierre desde HOME? | ✅ Entre `TryRunTics done` y `D_Display done`: `I_StartTic()`, `D_ProcessEvents()` o `D_Display()`. Hipótesis C descartada (el bucle llega a la iteración). |
+| 36 | ¿Cuál de las 3 funciones se cuelga? | ✅ `D_Display()` es la culpable. `Before D_Display` presente, `D_Display done` ausente. I_StartTic y D_ProcessEvents completan sin problemas. |
 
 ## Prueba 30 (hecha, sin archivos de control)
 
@@ -324,33 +326,38 @@ D_Display ();        // l.1654: renderiza el fotograma (llama al backend GPU)
 
 
 
-## Prueba 36 (propuesta)
+## Prueba 36 (hecha, 1 pasada, log analizado)
+
+**Pregunta:** ¿En qué función exacta (`I_StartTic`, `D_ProcessEvents` o `D_Display`) se para el cierre desde HOME?
+
+**Resultado:**
+- Log: 91 líneas, `Test: test 36`, commit 3c9051003 + uncommitted changes.
+- Sin GPU HANG, frames 0-11 OK, `Init complete` (l.55). Carga ~133 s.
+- Marcas `[EXIT]` en orden (línea 91, todas pegadas): `TryRunTics done` → `Before I_StartTic` → `After I_StartTic` → `Before D_ProcessEvents` → `After D_ProcessEvents` → `Before D_Display`.
+- **Última marca presente:** `[EXIT] Before D_Display` (d_main.cpp:1681).
+- **Primera marca ausente:** `[EXIT] D_Display done` (d_main.cpp:1688).
+
+**Veredicto de hipótesis:**
+
+| Hipótesis | Resultado | Razón |
+|---|---|---|
+| A: `I_StartTic()` se cuelga | ❌ Descartada | `After I_StartTic` aparece en el log. |
+| B: `D_ProcessEvents()` se cuelga | ❌ Descartada | `After D_ProcessEvents` aparece en el log. |
+| C: `D_Display()` se cuelga | ✅✅ **Confirmada** | `Before D_Display` aparece pero `D_Display done` no. |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| `D_Display()` es la función que se cuelga en el cierre desde HOME (log l.91: `Before D_Display` presente, `D_Display done` ausente) | El contexto GPU está corrupto tras el APT suspend/restore: los frames 0-11 funcionan pero tras el suspend (l.88) el estado puede haber cambiado | Qué dentro de `D_Display()` se cuelga exactamente (¿`C3D_FrameBegin`, `DrawElements`, otro?) |
+| `I_StartTic()` y `D_ProcessEvents()` completan sin problemas (l.91) | El problema es similar al GPU HANG de las pruebas 16-23 pero activado por el APT suspend | Si `fsync` escribe todo antes del cuelgue (la línea 91 tiene 7 marcas pegadas: el log se guarda) |
+
+**Nota:** Las 7 marcas de la línea 91 están pegadas sin separador porque cada `N3DS_Log()` no añade `\n` y `N3DS_LogFlush()` solo vacía el buffer. Es comportamiento esperado.
 
 **Lo que se pidió:**
 - [x] Aislar cuál de las 3 funciones (`I_StartTic`, `D_ProcessEvents`, `D_Display`) se cuelga en el cierre desde HOME.
 
-**Pregunta:** ¿En qué función exacta (`I_StartTic`, `D_ProcessEvents` o `D_Display`) se para el cierre desde HOME?
-
-**Lo que ya sabemos (con la prueba que lo mostró):**
-- Prueba 35: el cuelgue está entre `[EXIT] TryRunTics done` (d_main.cpp:1648) y `[EXIT] D_Display done` (l.1658). El código entre ambas son solo 3 llamadas (d_main.cpp:1652-1654):
-  1. `I_StartTic()` (l.1652): en 3DS llama `hidScanInput()` (i_input.cpp:692), luego `I_CheckGUICapture()`, `I_CheckNativeMouse()`, `I_GetEvent()`, `Joy_RumbleTick()`.
-  2. `D_ProcessEvents()` (l.1653): procesa la cola de eventos (d_event.cpp:61-113). Itera sobre `events[]`, llama a `C_Responder()`, `M_Responder()`, `G_Responder()`.
-  3. `D_Display()` (l.1654): renderiza el fotograma completo. Llama al backend GPU (`c3d_framebuffer.cpp`). Ya funciona en frames 0-11 pero el contexto GPU puede estar corrupto tras el APT suspend/restore.
-- Tras el APT suspend (l.78 del log) y `aptMainLoop()` devolviendo `false` (l.79), el estado de los subsistemas de hardware puede haber cambiado (hechos S6: `aptHook` con eventos ON Suspend/Restore; S8: `aptMainLoop()` devuelve `false` al cerrar).
-
-**Hipótesis A:** `I_StartTic()` se cuelga.
-- `hidScanInput()` lee memoria compartida (`hidSharedMem`) y hace `memset` y operaciones aritméticas (libctru `hid.c` línea 172-219). No llama a servicios: no debería bloquear. Pero las funciones siguientes (`I_CheckGUICapture`, `I_GetEvent`, `Joy_RumbleTick`) podrían fallar.
-- Si A es cierta, el log mostrará: `[EXIT] Before I_StartTic` pero NO `[EXIT] After I_StartTic`.
-
-**Hipótesis B:** `D_ProcessEvents()` se cuelga.
-- La cola de eventos puede tener eventos pendientes del APT suspend/restore que causan un bucle o crash.
-- Si B es cierta, el log mostrará: `[EXIT] After I_StartTic`, `[EXIT] Before D_ProcessEvents` pero NO `[EXIT] After D_ProcessEvents`.
-
-**Hipótesis C:** `D_Display()` se cuelga.
-- El contexto GPU puede estar corrupto tras el APT restore. Aunque los frames 0-11 funcionaron, el estado tras el suspend puede ser distinto.
-- Si C es cierta, el log mostrará: `[EXIT] After D_ProcessEvents`, `[EXIT] Before D_Display` pero NO `[EXIT] D_Display done` (la marca existente de l.1658).
-
-**Única variable que cambia:** Cinco marcas `[EXIT]` adicionales en `d_main.cpp` (l.1652-1654), dentro de `#ifdef __3DS__`: `Before I_StartTic`, `After I_StartTic`, `Before D_ProcessEvents`, `After D_ProcessEvents`, `Before D_Display`. Solo `N3DS_Log` + `N3DS_LogFlush`, sin cambios funcionales. La marca `[EXIT] D_Display done` (l.1658) ya existe.
+**Única variable que cambia:** Cinco marcas `[EXIT]` adicionales en `d_main.cpp` (l.1652-1684), dentro de `#ifdef __3DS__`. Solo `N3DS_Log` + `N3DS_LogFlush`, sin cambios funcionales.
 
 **Pasadas en la consola:**
 
@@ -358,30 +365,21 @@ D_Display ();        // l.1654: renderiza el fotograma (llama al backend GPU)
 |---|---|---|
 | A | ninguno | Esperar al título (~100 s), HOME→volver, esperar 60 s, HOME→cerrar, esperar 15 s. Criterio: el log. |
 
-**Marcadores que se quedan:** los de la pregunta abierta (cierre desde HOME). **Marcadores que se quitan:** ninguno.
+**Marcadores que se quedan:** los de la pregunta abierta (cierre desde HOME, ahora dentro de `D_Display()`). **Marcadores que se quitan:** ninguno.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 36`.
 
 **Autocomprobación (9 preguntas):**
 
-1. **Tabla de diferencias.** Si cambias un shader, compara **instrucción por instrucción**: qué lee cada una (constante, uniforme, registro temporal, entrada) y **qué componentes escribe** (`.xy` no es lo mismo que `.xyzw`). Cada diferencia es una fila. Para cada par de pasadas que vas a comparar, haz una tabla con **todo** lo que cambia entre ellas: shader, valores de los uniformes, vértices (coordenadas y z), atributos (cuántos, cuáles fijos y qué registro), estado (blend, depth, combinadores), textura y llamada de dibujo. Para llenarla, lee el código de los **dos caminos**, no solo el que escribiste. Si cambia más de una fila, la prueba no aísla una sola variable: o separas las filas en pasadas distintas, o la conclusión solo podrá nombrar el conjunto ("el shader o sus datos").
-   No hay shader ni variantes. Las 3 hipótesis se distinguen por la última marca `[EXIT]` que aparece en el log. Cada una predice un punto distinto donde el log se corta.
-2. **¿Cada hipótesis predice algo distinto en el log?** Escribe la línea `[C3D]` concreta que saldría bajo cada una. Si dos hipótesis dan el mismo log, no las distingue esta prueba.
-   Sí: A se corta tras `Before I_StartTic`, B tras `After I_StartTic` / `Before D_ProcessEvents`, C tras `After D_ProcessEvents` / `Before D_Display`.
-3. **¿Lo que dices que se verá en pantalla puede verse?** Comprueba el color final con los datos reales: qué registro de entrada lee el shader y qué valor le llega. Un triángulo negro sobre fondo negro "no se ve" aunque funcione. Si la pantalla no es fiable, el criterio es el log.
-   No: el criterio es el log. La pantalla se queda en "Cerrando el programa suspendido" en todos los casos.
-4. **¿Se resuelve en una sola compilación?** Si sabes de antemano que harán falta más pruebas para separar hipótesis ("para distinguir B de C haría falta la 28"), mete esas variantes **en esta**: un interruptor por variante, una pasada por variante. Cada compilación y cada ronda en la consola cuestan más que una pasada extra.
-   Sí: una pasada con las 5 marcas nuevas + la existente de l.1658 distingue las 3 hipótesis.
-5. **¿Cada afirmación sobre una API tiene su fuente** (archivo y línea en `~/work/refs/`, o `hechos-3ds.md`)? No basta con que la función exista: escribe **qué dice ese código que pasa** y cuándo (por ejemplo, "el gancho ONEXIT se llama en `aptExit`, después de `main`"), y saca tu predicción del log de ahí, no de lo que suena lógico.
-   Sí: `hidScanInput()` (libctru `hid.c` línea 172-219: lee `hidSharedMem`, `memset`, aritmética), `D_ProcessEvents()` (d_event.cpp:61-113), `D_Display()` (d_main.cpp:1255+). `aptMainLoop()` devuelve `false` al cerrar (hechos S8).
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Busca la hipótesis que tu diseño no puede descartar porque esa fila de la tabla **nunca cambia** en ninguna pasada (por ejemplo, los datos del dibujo). Si la hay, añade una pasada que la cambie a ella sola, o escribe que esta prueba no la distingue.
-   Si aparecen TODAS las marcas incluyendo `[EXIT] D_Display done` (l.1658), sabría que el cuelgue está después de `D_Display()`: en `S_UpdateMusic()` (l.1661), en `quickexit` (l.1668) o más adelante. Si ninguna marca nueva aparece tras `TryRunTics done`, sabría que `I_StartTic()` no termina (Hipótesis A).
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Prefiere archivos de control vacíos con nombres distintos a archivos con contenido (un número dentro), que el Bloc de notas puede guardar con BOM o salto de línea.
-   Sí: una sola pasada, sin archivos de control.
-8. **¿Lo que vas a añadir ya existe?** Antes de crear una función, un archivo, un interruptor o una variable, busca su nombre: `grep -rn "nombre" src/` y mira si ese archivo se compila en la 3DS (`src/CMakeLists.txt`). Si ya existe, se modifica ahí (bajo `#ifdef __3DS__` si es código del motor); si defines otra, el enlazado falla.
-   Sí: `N3DS_Log` y `N3DS_LogFlush` ya existen (`platform_3ds.h`). Las marcas van en `d_main.cpp` donde ya hay marcas `[EXIT]` existentes, dentro de `#ifdef __3DS__`. No se crea nada nuevo.
-9. **¿Qué se ejecuta después de tu cambio?** Sigue el flujo desde tu cambio hasta que el resultado se vea (en pantalla o en el log): qué funciones corren después, si alguna dibuja, espera o escribe en la SD, y si el log sigue abierto. Si en ese camino algo puede colgarse, pon una marca antes de ese paso.
-   Cada marca tiene `N3DS_LogFlush()` con `fsync`. Si `I_StartTic()` se cuelga, la marca `Before I_StartTic` aparece pero no `After`. Si `D_Display()` se cuelga, las marcas nuevas aparecen pero no `[EXIT] D_Display done` (l.1658).
+1. **Tabla de diferencias.** No hay shader ni variantes. Las 3 hipótesis se distinguen por la última marca `[EXIT]` que aparece en el log.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A se corta tras `Before I_StartTic`, B tras `Before D_ProcessEvents`, C tras `Before D_Display`.
+3. **¿Lo que dices que se verá en pantalla puede verse?** No: el criterio es el log.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada con las 5 marcas nuevas + la existente distingue las 3 hipótesis.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `hidScanInput()` (libctru `hid.c` línea 172-219), `D_ProcessEvents()` (d_event.cpp:61-113), `D_Display()` (d_main.cpp:1255+).
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si apareciera `D_Display done`, sabría que el cuelgue es después de `D_Display()`.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** Sí: `N3DS_Log` y `N3DS_LogFlush` ya existen.
+9. **¿Qué se ejecuta después de tu cambio?** Cada marca tiene `N3DS_LogFlush()` con `fsync`.
 
 
 - **Texto en ruso:** línea 24 de los logs: `В игрока %o попала межпространственная слизь!` se pega con `Selecting OpenGL backend...` sin separador. Causa desconocida.

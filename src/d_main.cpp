@@ -1649,8 +1649,38 @@ void D_DoomLoop ()
 			}
 #endif
 			// Update display, next frame, with current state.
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] Before I_StartTic"); N3DS_LogFlush();
+			}
+#endif
 			I_StartTic ();
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] After I_StartTic"); N3DS_LogFlush();
+			}
+#endif
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] Before D_ProcessEvents"); N3DS_LogFlush();
+			}
+#endif
 			D_ProcessEvents();
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] After D_ProcessEvents"); N3DS_LogFlush();
+			}
+#endif
+#ifdef __3DS__
+			if (gameloop_abort)
+			{
+				N3DS_Log("[EXIT] Before D_Display"); N3DS_LogFlush();
+			}
+#endif
 			D_Display ();
 #ifdef __3DS__
 			if (gameloop_abort)
