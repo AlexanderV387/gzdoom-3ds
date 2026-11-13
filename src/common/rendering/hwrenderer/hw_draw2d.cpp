@@ -32,12 +32,6 @@
 #include "r_videoscale.h"
 #include "v_draw.h"
 
-#ifdef __3DS__
-#include "platform_3ds.h"
-#include "c3d_diag.h"
-#include "menustate.h"
-#endif
-
 //===========================================================================
 //
 // Draws the 2D stuff. This is the version for OpenGL 3 and later.
@@ -60,23 +54,6 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 	state.SetViewport(x, y, width, height);
 	screen->mViewpoints->Set2D(state, drawer->GetWidth(), drawer->GetHeight());
 
-#ifdef __3DS__
-	{
-		bool isMenu = (menuactive != MENU_Off);
-		static int menuCount = 0, hudCount = 0;
-		if (isMenu && menuCount < 5) menuCount++;
-		else if (!isMenu && hudCount < 5) hudCount++;
-		bool logIt = isMenu ? (menuCount <= 5) : (hudCount <= 5);
-		if (logIt)
-		{
-			int fN = C3DRenderer::Diag::FrameN();
-			N3DS_Log("[M-f%d-VP] %d,%d,%dx%d menu=%d\n", fN, x, y, width, height, isMenu);
-			N3DS_Log("[M-f%d-F2D] %dx%d\n", fN, drawer->GetWidth(), drawer->GetHeight());
-			N3DS_LogFlush();
-		}
-	}
-#endif
-
 	state.EnableStencil(false);
 	state.SetStencil(0, SOP_Keep, SF_AllOn);
 	state.Clear(CT_Stencil);
@@ -96,22 +73,6 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 		return;
 	}
 
-#ifdef __3DS__
-	{
-		bool isMenu = (menuactive != MENU_Off);
-		static int menuCount2 = 0, hudCount2 = 0;
-		if (isMenu && menuCount2 < 5) menuCount2++;
-		else if (!isMenu && hudCount2 < 5) hudCount2++;
-		bool logIt = isMenu ? (menuCount2 <= 5) : (hudCount2 <= 5);
-		if (logIt)
-		{
-			int fN = C3DRenderer::Diag::FrameN();
-			N3DS_Log("[M-f%d-CMDS] %d\n", fN, commands.Size());
-			N3DS_LogFlush();
-		}
-	}
-#endif
-
 	if (drawer->mIsFirstPass)
 	{
 		for (auto &v : vertices)
@@ -127,20 +88,6 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 
 	for(auto &cmd : commands)
 	{
-#ifdef __3DS__
-		static bool firstCmdLogged = false;
-		if (!firstCmdLogged && (menuactive != MENU_Off || true))
-		{
-			int fN = C3DRenderer::Diag::FrameN();
-			N3DS_Log("[M-f%d-VERT] %d,%d,%d,%d\n", fN,
-				(int)vertices.Size() > 0 ? (int)vertices[0].pos[0] : -1,
-				(int)vertices.Size() > 0 ? (int)vertices[0].pos[1] : -1,
-				(int)vertices.Size() > 0 ? (int)vertices[0].pos[2] : -1,
-				(int)vertices.Size() > 0 ? (int)vertices[0].pos[3] : -1);
-			N3DS_LogFlush();
-			firstCmdLogged = true;
-		}
-#endif
 		if (cmd.isSpecial != SpecialDrawCommand::NotSpecial)
 		{
 			if (cmd.isSpecial == SpecialDrawCommand::EnableStencil)
@@ -219,31 +166,6 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 			state.mModelMatrix.loadMatrix(m);
 			state.EnableModelMatrix(true);
 		}
-
-#ifdef __3DS__
-		{
-			static bool firstDrawLogged = false;
-			if (!firstDrawLogged)
-			{
-				int fN = C3DRenderer::Diag::FrameN();
-				bool wrap = (cmd.mFlags & F2DDrawer::DTF_Wrap) ? true : false;
-				int texW = 0, texH = 0;
-				if (cmd.mTexture != nullptr && cmd.mTexture->isValid())
-				{
-					texW = cmd.mTexture->GetWidth();
-					texH = cmd.mTexture->GetHeight();
-				}
-				N3DS_Log("[M-f%d-TX] %dx%d wrap=%d\n", fN, texW, texH, wrap);
-				N3DS_Log("[M-f%d-XFORM] %d,%d,%d,%d\n", fN,
-					cmd.useTransform ? (int)cmd.transform.Cells[0][0] : -1,
-					cmd.useTransform ? (int)cmd.transform.Cells[0][1] : -1,
-					cmd.useTransform ? (int)cmd.transform.Cells[1][0] : -1,
-					cmd.useTransform ? (int)cmd.transform.Cells[1][1] : -1);
-				N3DS_LogFlush();
-				firstDrawLogged = true;
-			}
-		}
-#endif
 
 		if (cmd.mTexture != nullptr && cmd.mTexture->isValid())
 		{
