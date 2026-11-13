@@ -4553,36 +4553,108 @@ void D_Cleanup()
 	// Music and sound should be stopped first
 	S_StopMusic(true);
 	S_ClearSoundData();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after S_ClearSoundData"); N3DS_LogFlush();
+#endif
 	S_UnloadReverbDef();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after S_UnloadReverbDef"); N3DS_LogFlush();
+#endif
 	G_ClearMapinfo();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after G_ClearMapinfo"); N3DS_LogFlush();
+#endif
 
 	M_ClearMenus();					// close menu if open
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after M_ClearMenus"); N3DS_LogFlush();
+#endif
 	AM_ClearColorsets();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after AM_ClearColorsets"); N3DS_LogFlush();
+#endif
 	DeinitSWColorMaps();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after DeinitSWColorMaps"); N3DS_LogFlush();
+#endif
 	FreeSBarInfoScript();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after FreeSBarInfoScript"); N3DS_LogFlush();
+#endif
 	DeleteScreenJob();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after DeleteScreenJob"); N3DS_LogFlush();
+#endif
 
 	// clean up game state
 	D_ErrorCleanup ();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after D_ErrorCleanup"); N3DS_LogFlush();
+#endif
 	P_Shutdown();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after P_Shutdown"); N3DS_LogFlush();
+#endif
 
 	M_SaveDefaults(NULL);			// save config before the restart
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after M_SaveDefaults"); N3DS_LogFlush();
+#endif
 
 	// delete all data that cannot be left until reinitialization
 	CleanSWDrawer();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after CleanSWDrawer"); N3DS_LogFlush();
+#endif
 	V_ClearFonts();					// must clear global font pointers
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after V_ClearFonts"); N3DS_LogFlush();
+#endif
 	ColorSets.Clear();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after ColorSets.Clear"); N3DS_LogFlush();
+#endif
 	PainFlashes.Clear();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after PainFlashes.Clear"); N3DS_LogFlush();
+#endif
 	gameinfo.~gameinfo_t();
 	new (&gameinfo) gameinfo_t;		// Reset gameinfo
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after gameinfo reset"); N3DS_LogFlush();
+#endif
 	S_Shutdown();					// free all channels and delete playlist
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after S_Shutdown"); N3DS_LogFlush();
+#endif
 	C_ClearAliases();				// CCMDs won't be reinitialized so these need to be deleted here
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after C_ClearAliases"); N3DS_LogFlush();
+#endif
 	DestroyCVarsFlagged(CVAR_MOD);	// Delete any cvar left by mods
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after DestroyCVarsFlagged"); N3DS_LogFlush();
+#endif
 	DeinitMenus();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after DeinitMenus"); N3DS_LogFlush();
+#endif
 	savegameManager.ClearSaveGames();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after ClearSaveGames"); N3DS_LogFlush();
+#endif
 	LightDefaults.DeleteAndClear();			// this can leak heap memory if it isn't cleared.
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after LightDefaults"); N3DS_LogFlush();
+#endif
 	TexAnim.DeleteAll();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after TexAnim.DeleteAll"); N3DS_LogFlush();
+#endif
 	TexMan.DeleteAll();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after TexMan.DeleteAll"); N3DS_LogFlush();
+#endif
 
 	// delete GameStartupInfo data
 	GameStartupInfo.Name = "";
@@ -4592,30 +4664,60 @@ void D_Cleanup()
 	GameStartupInfo.SteamAppId = "";
 
 	GC::FullGC();					// clean up before taking down the object list.
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after GC.FullGC.1"); N3DS_LogFlush();
+#endif
 
 	// Delete the reference to the VM functions here which were deleted and will be recreated after the restart.
 	AutoSegs::ActionFunctons.ForEach([](AFuncDesc *afunc)
 	{
 		*(afunc->VMPointer) = NULL;
 	});
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after AutoSegs.ForEach"); N3DS_LogFlush();
+#endif
 
 	GC::DelSoftRootHead();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after GC.DelSoftRootHead"); N3DS_LogFlush();
+#endif
 
 	for (auto& p : players)
 	{
 		p.PendingWeapon = nullptr;
 	}
 	PClassActor::AllActorClasses.Clear();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after PClassActor.Clear"); N3DS_LogFlush();
+#endif
 	ScriptUtil::Clear();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after ScriptUtil.Clear"); N3DS_LogFlush();
+#endif
 	PClass::StaticShutdown();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after PClass.StaticShutdown"); N3DS_LogFlush();
+#endif
 
 	GC::FullGC();					// perform one final garbage collection after shutdown
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after GC.FullGC.2"); N3DS_LogFlush();
+#endif
 
 	assert(GC::Root == nullptr);
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after assert"); N3DS_LogFlush();
+#endif
 
 	restart++;
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after restart++"); N3DS_LogFlush();
+#endif
 	PClass::bShutdown = false;
 	PClass::bVMOperational = false;
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC end"); N3DS_LogFlush();
+#endif
 }
 
 //==========================================================================
