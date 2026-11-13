@@ -14,6 +14,7 @@
 #include "c3d_main_shbin.h"
 #include "c3d_simpletri_shbin.h"
 #include "platform_3ds.h"
+#include "d_main.h"
 
 #include "flatvertices.h"
 #include "hw_skydome.h"
@@ -144,36 +145,54 @@ void C3DFrameBuffer::ScreenBegin()
 {
 	if (mFrameStarted || mFrameBlocked) return;
 
-	N3DS_Log("[EXIT] f%d:SB_enter mFrameStarted=%d mFrameBlocked=%d\n", Diag::FrameN(), mFrameStarted, mFrameBlocked);
-	N3DS_LogFlush();
+	if (gameloop_abort)
+	{
+		N3DS_Log("[EXIT] f%d:SB_enter mFrameStarted=%d mFrameBlocked=%d\n", Diag::FrameN(), mFrameStarted, mFrameBlocked);
+		N3DS_LogFlush();
+	}
 
 	// The previous frame's GPU work must have finished. A healthy GPU needs far less than a
 	// frame for it; waiting up to 120 vblanks (2 s) tells a slow frame from a hung GPU. Once
 	// the hang is reported, one retry per frame is enough.
-	N3DS_Log("[EXIT] f%d:FB_before\n", Diag::FrameN());
-	N3DS_LogFlush();
+	if (gameloop_abort)
+	{
+		N3DS_Log("[EXIT] f%d:FB_before\n", Diag::FrameN());
+		N3DS_LogFlush();
+	}
 	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
-	N3DS_Log("[EXIT] f%d:FB_after\n", Diag::FrameN());
-	N3DS_LogFlush();
+	if (gameloop_abort)
+	{
+		N3DS_Log("[EXIT] f%d:FB_after\n", Diag::FrameN());
+		N3DS_LogFlush();
+	}
 	int retries = 0;
 	const int maxRetries = Diag::HangReported() ? 1 : 120;
 	while (!ok && retries < maxRetries)
 	{
-		N3DS_Log("[EXIT] f%d:FB_fail r=%d\n", Diag::FrameN(), retries + 1);
-		N3DS_LogFlush();
-		N3DS_Log("[EXIT] f%d:VBlank_before\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:FB_fail r=%d\n", Diag::FrameN(), retries + 1);
+			N3DS_LogFlush();
+			N3DS_Log("[EXIT] f%d:VBlank_before\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		gspWaitForVBlank();
-		N3DS_Log("[EXIT] f%d:VBlank_after\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:VBlank_after\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		retries++;
 		ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
 	}
 	Diag::FrameBegun(ok, retries);
 	if (!ok)
 	{
-		N3DS_Log("[EXIT] f%d:FB_fail final r=%d\n", Diag::FrameN(), retries);
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:FB_fail final r=%d\n", Diag::FrameN(), retries);
+			N3DS_LogFlush();
+		}
 		mFrameBlocked = true;	// this frame draws nothing; Update() clears it for the next one
 		return;
 	}
@@ -182,8 +201,11 @@ void C3DFrameBuffer::ScreenBegin()
 	C3D_FrameDrawOn(mTop);
 	mFrameStarted = true;
 
-	N3DS_Log("[EXIT] f%d:SB_ok\n", Diag::FrameN());
-	N3DS_LogFlush();
+	if (gameloop_abort)
+	{
+		N3DS_Log("[EXIT] f%d:SB_ok\n", Diag::FrameN());
+		N3DS_LogFlush();
+	}
 }
 
 void C3DFrameBuffer::BeginFrame()
@@ -345,24 +367,42 @@ void C3DFrameBuffer::Update()
 	if (mFrameBlocked)
 	{
 		// No frame could be started: drop this frame's 2D and try again on the next one.
-		N3DS_Log("[EXIT] f%d:blk_clear\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:blk_clear\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		twod->Clear();
-		N3DS_Log("[EXIT] f%d:blk_reset\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:blk_reset\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		TheRenderState->ResetDeviceState();
-		N3DS_Log("[EXIT] f%d:blk_begin\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:blk_begin\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		TheRenderState->BeginFrame();
-		N3DS_Log("[EXIT] f%d:blk_diag\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:blk_diag\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		Diag::FrameDone(false);
-		N3DS_Log("[EXIT] f%d:blk_super\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:blk_super\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		Super::Update();
 		mFrameBlocked = false;
-		N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
-		N3DS_LogFlush();
+		if (gameloop_abort)
+		{
+			N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
+			N3DS_LogFlush();
+		}
 		return;
 	}
 	if (Diag::Triangle) DrawTestTriangle();
@@ -377,8 +417,11 @@ void C3DFrameBuffer::Update()
 	TheRenderState->ResetDeviceState();
 	TheRenderState->BeginFrame();
 	Super::Update();
-	N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
-	N3DS_LogFlush();
+	if (gameloop_abort)
+	{
+		N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
+		N3DS_LogFlush();
+	}
 }
 
 IHardwareTexture *C3DFrameBuffer::CreateHardwareTexture(int numchannels)
