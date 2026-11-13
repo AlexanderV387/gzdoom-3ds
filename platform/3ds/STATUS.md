@@ -108,8 +108,8 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 **Hipótesis M2 (repetición):** El wrap de la textura del menú está activado (`DTF_Wrap`), haciendo que las coordenadas de textura se repitan en lugar de cortarse. El código en hw_draw2d.cpp:175 pasa `CLAMP_NONE` cuando `DTF_Wrap` está activo, lo que permite que la textura se tilee.
 - Si M2 es cierta, el log mostrará `[M-TX] wrap=yes` en frames con menú pero `wrap=no` (o `CLAMP_XY`) en frames con HUD.
 
-**Hipótesis M3 (repetición por coordenadas):** Los vértices del menú usan coordenadas y/o transformaciones (`cmd.transform`) que colocan los dibujos fuera del área visible, y la GPU los envuelve o repite.
-- Si M3 es cierta, el log mostrará `[M-VERT]` con coordenadas fuera de rango (mayores que 400x240) en frames con menú, y `[M-XFORM]` con valores de transformación distintos a identidad.
+**Hipótesis M3 (repetición por transformación):** La matriz de transformación 2D del menú (`cmd.transform`) tiene un factor de escala que duplica el contenido. Si `transform.Cells[0][0]` o `transform.Cells[1][1]` es >1, el dibujo se escala y puede repetirse dentro del viewport si las coordenadas de textura también lo permiten.
+- Si M3 es cierta, el log mostrará `[M-XFORM]` con valores de escala >1 en frames con menú, pero 1.0 en frames con HUD.
 
 **Marcas de medición del menú (solo lectura, sin cambiar comportamiento):**
 En `hw_draw2d.cpp`, dentro de `#ifdef __3DS__`, activas solo en los primeros ~5 frames con menú y ~5 frames con HUD:
@@ -148,7 +148,7 @@ Solo lectura de variables locales, sin cambiar el flujo.
 
 1. **Tabla de diferencias.** No hay shader ni variantes. Las hipótesis del cuelgue (A, B, C) se distinguen por la última marca `[EXIT]` en el log. Las hipótesis del menú (M1, M2, M3) se distinguen por los valores de `[M-VP]`, `[M-F2D]`, `[M-TX]`, `[M-VERT]`, `[M-XFORM]` comparando frames con menú vs HUD. No hay pasadas con archivos de control que cambien el comportamiento.
 
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí, para el cuelgue: A se corta tras `[EXIT] Update:ScreenBegin` (sin `FrameBeginOK`), B tras `[EXIT] Update:FrameBeginOK` (sin `Draw2Ddone`), C tras `[EXIT] Update:Draw2Ddone` (sin `FrameEnd`). Para el menú: M1 predice `[M-VP]` y/o `[M-F2D]` distintos, M2 predice `[M-TX] wrap=yes` solo en menú, M3 predice `[M-VERT]` fuera de rango y `[M-XFORM]` distinta de identidad.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí, para el cuelgue: A se corta tras `[EXIT] Update:ScreenBegin` (sin `FrameBeginOK`), B tras `[EXIT] Update:FrameBeginOK` (sin `Draw2Ddone`), C tras `[EXIT] Update:Draw2Ddone` (sin `FrameEnd`). Para el menú: M1 predice `[M-VP]` y/o `[M-F2D]` distintos, M2 predice `[M-TX] wrap=yes` solo en menú, M3 predice `[M-XFORM]` con escala >1 solo en menú.
 
 3. **¿Lo que dices que se verá en pantalla puede verse?** Para el cuelgue, no: el criterio es el log. Para el menú, la pantalla ya muestra el problema conocido (zoomado y repetido), pero el diagnóstico viene del log.
 
@@ -162,7 +162,7 @@ Solo lectura de variables locales, sin cambiar el flujo.
 
 8. **¿Lo que vas a añadir ya existe?** Sí: `N3DS_Log` y `N3DS_LogFlush` ya existen. Las marcas `[EXIT]` y `[M-*]` son nuevas pero no entran en conflicto con nada. No se cambia el comportamiento ni el camino de salida.
 
-9. **¿Qué se ejecuta después de tu cambio?** Cada marca tiene `N3DS_LogFlush()` con `fsync`. Flujo: `D_Display()` → `End2DAndUpdate()` → `screen->Update()` → marcas `[EXIT]` dentro de `Update()` → si todo va bien, `[EXIT] D_Display done` (ya existe en d_main.cpp). Las marcas `[M-*]` se emiten dentro de `Draw2D()` (l.50-74) en los primeros frames con menú y HUD.
+9. **¿Qué se ejecuta después de tu cambio?** Cada marca tiene `N3DS_LogFlush()` con `fsync`. Flujo: `D_Display()` → `End2DAndUpdate()` → `screen->Update()` → marcas `[EXIT]` dentro de `Update()` → si todo va bien, `[EXIT] D_Display done` (ya existe en d_main.cpp). Las marcas `[M-*]` se emiten dentro de `Draw2D()` en hw_draw2d.cpp: `[M-CMDS]`, `[M-VP]`, `[M-F2D]` al entrar (l.50-74); `[M-VERT]`, `[M-TX]`, `[M-XFORM]` dentro del bucle de comandos (l.89-176).
 
 ## Tabla de la revisora
 
