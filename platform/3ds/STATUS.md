@@ -20,7 +20,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 9. **Menú:** sale grande y repetido arriba y abajo. El HUD, la consola `~` y la pantalla de título se ven bien (Alex, en persona, 13 nov.). Los valores de escala del motor son normales (34).
 10. **OPTIONS cierra el juego:** `svcBreak` desde `GPUCMD_AddInternal` (resuelto con `addr2line` sobre la 36): el búfer de comandos de la GPU se llena (`hechos-3ds.md` F8).
 11. **`C3D_FrameBegin` bloquea al cerrar desde HOME.** Con `C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK` se queda indefinidamente en el fotograma 2016. La marca `FB_before` aparece pero no `FB_after` (prueba 37).
-12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). Pero `D_Cleanup()` se rompe: en la pasada A la última marca es `D_Cleanup start`; en la B (saltando `D_Display()`) llega a `GameMain exit 0` pero Luma crasha después (crash dump PC=0, LR=2) (prueba 38).
+12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). Pero `D_Cleanup()` se rompe: en la pasada A la última marca es `D_Cleanup start`; en la B (saltando `D_Display()`) llega a `GameMain exit 0` pero hay crash post-main (dump PC=0, LR=2, ARM9/ARM11 sin datos) (prueba 38).
 13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
 
 ## Pregunta abierta
@@ -32,24 +32,20 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 **Lo que se pidió:**
 - [x] Prueba 39 = dentro de `D_Cleanup()` (sin marcas aún)
 - [x] Pregunta: ¿qué función de `D_Cleanup()` no vuelve?
+- [x] Marca por cada llamada, no por grupos
+- [x] Nombre de la función en la marca
 - [x] Plantilla escrita
 
 **Pregunta:** ¿Qué función dentro de `D_Cleanup()` se queda sin volver al cerrar desde HOME?
 
 **Lo que ya sabemos:**
 - Punto 12: Log A (prueba 38) última marca `D_Cleanup start`; Log B llega a `GameMain exit 0` pero crash post-main.
-- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~30 funciones. Las que tocan GPU: `TexMan.DeleteAll()` (l.4585). `CleanSWDrawer()` y `S_Shutdown()` son CPU/audio.
+- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~30 funciones. La que toca GPU: `TexMan.DeleteAll()` (l.4585).
 
-**Hipótesis:** `D_Cleanup()` se para en una función concreta. Con marcas `[EXIT]` antes y después de los grupos de funciones, la marca ausente dice cuál.
+**Hipótesis:** `D_Cleanup()` se para en una función concreta. Con una marca `[EXIT]` después de cada llamada, la marca ausente dice cuál.
 
-**Grupos de marcas (6 marcas, 6 intervalos):**
-0. `[EXIT] DC_start` — al inicio de `D_Cleanup()` (línea 4542, antes de `debugServer`)
-1. `[EXIT] DC_sound` — después de `S_ClearSoundData()` (línea 4555)
-2. `[EXIT] DC_menu` — después de `M_ClearMenus()` (4559)
-3. `[EXIT] DC_game` — después de `P_Shutdown()` (4567)
-4. `[EXIT] DC_tex` — después de `TexMan.DeleteAll()` (4585)
-5. `[EXIT] DC_class` — después de `PClass::StaticShutdown()` (4610)
-6. `[EXIT] DC_end` — al final de `D_Cleanup()` (línea 4618, antes de `}`)
+**Marcas (una por llamada, en orden):**
+`[EXIT] DC after S_ClearSoundData`, `[EXIT] DC after S_UnloadReverbDef`, `[EXIT] DC after G_ClearMapinfo`, `[EXIT] DC after M_ClearMenus`, `[EXIT] DC after AM_ClearColorsets`, `[EXIT] DC after DeinitSWColorMaps`, `[EXIT] DC after FreeSBarInfoScript`, `[EXIT] DC after DeleteScreenJob`, `[EXIT] DC after D_ErrorCleanup`, `[EXIT] DC after P_Shutdown`, `[EXIT] DC after M_SaveDefaults`, `[EXIT] DC after CleanSWDrawer`, `[EXIT] DC after V_ClearFonts`, `[EXIT] DC after ColorSets.Clear`, `[EXIT] DC after PainFlashes.Clear`, `[EXIT] DC after gameinfo reset`, `[EXIT] DC after S_Shutdown`, `[EXIT] DC after C_ClearAliases`, `[EXIT] DC after DestroyCVarsFlagged`, `[EXIT] DC after DeinitMenus`, `[EXIT] DC after ClearSaveGames`, `[EXIT] DC after LightDefaults`, `[EXIT] DC after TexAnim.DeleteAll`, `[EXIT] DC after TexMan.DeleteAll`, `[EXIT] DC after GC.FullGC.1`, `[EXIT] DC after AutoSegs.ForEach`, `[EXIT] DC after GC.DelSoftRootHead`, `[EXIT] DC after PClassActor.Clear`, `[EXIT] DC after ScriptUtil.Clear`, `[EXIT] DC after PClass.StaticShutdown`, `[EXIT] DC after GC.FullGC.2`, `[EXIT] DC after assert`, `[EXIT] DC after restart++`, `[EXIT] DC end`
 
 **Pasada única** (sin archivo control, sin SYNCDRAW como la 38A): la compilación ya trae sin SYNCDRAW y las marcas nuevas.
 
@@ -59,20 +55,20 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 
 **Única variable:** las marcas `[EXIT]` dentro de `D_Cleanup()` (solo lectura, sin cambiar lógica).
 
-**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 6 nuevas en `D_Cleanup()`.
+**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las ~33 nuevas en `D_Cleanup()`.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 39`
 
 **Autocomprobación** (las 9 preguntas de `plantilla-prueba.md`, copiadas tal cual):
-1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +6 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: si falta `DC_sound` → problema entre inicio y sonido; `DC_menu` → entre sonido y menús; `DC_game` → entre menús y P_Shutdown; `DC_tex` → entre P_Shutdown y TexMan; `DC_class` → entre TexMan y PClass; `DC_end` → entre PClass y fin; si las 6 salen → fuera de `D_Cleanup()`.
-3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es el log, no la pantalla (¿vuelve al HOME o se cuelga?).
-4. **¿Se resuelve en una sola compilación?** Sí, sin interruptores.
+1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +~33 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: cada marca ausente apunta a una función concreta.
+3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es el log.
+4. **¿Se resuelve en una sola compilación?** Sí, sin interruptores. Con marca por función, una sola pasada basta.
 5. **¿Cada afirmación sobre una API tiene su fuente?** Solo `N3DS_Log`, ya usada y verificada (S10 de `hechos-3ds.md`).
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si las 6 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC::FinalGC/FullGC/DelSoftRootHead` de `GameMain`, `R_Shutdown()`, `I_ShutdownGraphics()`, etc.). Nota: `GC::FullGC` dentro de `D_Cleanup()` (l.4594, 4612) está cubierto por las marcas 4→5 y 5→6.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si las ~33 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC` de `GameMain`, `R_Shutdown()`, `I_ShutdownGraphics()`, etc.).
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sin archivos de control, solo copiar el `.3dsx`.
 8. **¿Lo que vas a añadir ya existe?** No, son marcas nuevas bajo `#ifdef __3DS__` en `d_main.cpp`.
-9. **¿Qué se ejecuta después de tu cambio?** `D_Cleanup()` con marcas entre grupos. Si marca N falta, el código entre la marca N-1 y N es la culpable. Después de `D_Cleanup()` sigue `GameMain` con más llamadas de limpieza.
+9. **¿Qué se ejecuta después de tu cambio?** `D_Cleanup()` con marcas tras cada llamada. Si marca N falta, la función N es la culpable. Después sigue `GameMain` con más limpieza.
 
 ## Registro de pruebas
 
@@ -115,3 +111,4 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 - Una línea del log tiene texto de otro idioma pegado antes de `Selecting OpenGL backend...`.
 - Líneas y puntos (automapa), niebla, luz, portales, sonido, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
 - Las fuentes TrueType latinas generan atlas de 1 MB con todo el juego de caracteres: lento y caro en memoria. Recortarlo cuando el resto funcione.
+- **Crash post-main ARM11 (prueba 38B):** dump en luma/dumps/arm11, PC=0, LR=2, CPSR=0, Current process `3dsx_app`. Salto a dirección nula tras `main()`. Candidatos: gancho APT (el nuestro `[APT]`, `APTHOOK_ONEXIT` se llama en `aptExit` después de `main`, hecho S8), función `atexit`, destructor de objeto global. Investigar después de la 39.

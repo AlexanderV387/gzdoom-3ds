@@ -389,7 +389,7 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 
 **Resultados:**
 - **Log A** (sin SYNCDRAW): `FB_after` ✅ → `C3D_FrameBegin` volvió. `D_Display done` ✅. Toda la cadena de salida hasta `CExitEvent caught` ✅. Última marca: `D_Cleanup start`. Se para **dentro** de `D_Cleanup()`.
-- **Log B** (saltando `D_Display()`): `skip D_Display` → toda la cadena completa hasta `GameMain exit 0` ✅. Crash dump: PC=0, LR=2, CPSR=0 → crash **post-main()**, en Luma/ARM9.
+- **Log B** (saltando `D_Display()`): `skip D_Display` → toda la cadena completa hasta `GameMain exit 0` ✅. Crash dump (luma/dumps/arm11): PC=0, LR=2, CPSR=0 → crash **post-main()** en ARM11.
 
 **Conclusiones por hipótesis:**
 | Hipótesis | Resultado |
@@ -402,5 +402,5 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 
 | Demostrado | Probable | Sin datos |
 |---|---|---|
-| Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). El problema del cierre no es solo `C3D_FrameBegin`: `D_Cleanup` se rompe cuando `D_Display()` se llamó en el último frame, y aunque se salte `D_Display()`, algo no se limpia bien y Luma crasha post-main | `D_Display()` en el último frame del cierre deja estado GPU o de citro3d que rompe `D_Cleanup()` (que llama a `R_Shutdown()`, `I_ShutdownGraphics()`, `TexMan.DeleteAll()`, etc.) | Qué función dentro de `D_Cleanup` falla exactamente; qué recurso no liberado causa el crash post-main de la pasada B |
+| Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). El problema del cierre no es solo `C3D_FrameBegin`: `D_Cleanup` se rompe cuando `D_Display()` se llamó en el último frame, y aunque se salte `D_Display()`, algo no se limpia bien y hay crash post-main en ARM11 | `D_Display()` en el último frame del cierre deja estado GPU o de citro3d que rompe `D_Cleanup()` (que llama a `R_Shutdown()`, `I_ShutdownGraphics()`, `TexMan.DeleteAll()`, etc.) | Qué función dentro de `D_Cleanup` falla exactamente; qué recurso no liberado causa el crash post-main de la pasada B |
 
