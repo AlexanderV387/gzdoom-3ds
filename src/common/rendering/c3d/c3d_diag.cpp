@@ -72,6 +72,11 @@ bool HangReported()
 	return Hang;
 }
 
+int FrameN()
+{
+	return Frame;
+}
+
 void FrameBegun(bool ok, int retries)
 {
 	BeginOk = ok;

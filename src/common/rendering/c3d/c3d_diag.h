@@ -36,6 +36,7 @@ void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 bool HangReported();
+int FrameN();										// current frame number
 void FrameBegun(bool ok, int retries);			// after C3D_FrameBegin (and its retries)
 void FrameDone(bool drawn);						// end of Update: one summary line per frame
 void Draw(bool indexed, bool sent);				// every draw call

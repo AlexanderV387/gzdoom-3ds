@@ -79,22 +79,24 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 **Lo que ya sabemos (con la prueba que lo mostró):**
 - `D_Display()` es la función que se cuelga (prueba 36, log l.91).
 - `D_Display()` llama a `End2DAndUpdate()` (d_main.cpp:1571), que hace `twod->End()` → `screen->Update()` → `twod->OnFrameDone()` (d_main.cpp:1108-1113).
-- `C3DFrameBuffer::Update()` (c3d_framebuffer.cpp:323-349): `ScreenBegin()` (l.325) → si no está blocked, `Draw2D()` (l.340) → `twod->Clear()` (l.342) → `C3D_FrameEnd(0)` (l.343) → `mFrameStarted=false` (l.344) → `Diag::FrameDone(true)` (l.345).
-- `ScreenBegin()` (c3d_framebuffer.cpp:142-168): `C3D_FrameBegin(SYNCDRAW|NONBLOCK)` con hasta 120 reintentos (1 si `Diag::HangReported()`). Si falla, pone `mFrameBlocked=true` y retorna.
-- Si `mFrameBlocked`, `Update()` salta el dibujo: `twod->Clear()` → `ResetDeviceState()` → `BeginFrame()` → `Diag::FrameDone(false)` → `Super::Update()` → `mFrameBlocked=false` → return (l.326-336).
+- `C3DFrameBuffer::Update()` (c3d_framebuffer.cpp:334-374): `ScreenBegin()` (l.336) → si `mFrameBlocked`, camino blocked (l.337-359): `twod->Clear()` → `ResetDeviceState()` → `BeginFrame()` → `Diag::FrameDone(false)` → `Super::Update()` → `mFrameBlocked=false` → `upd_end` (l.356) → return. Si no está blocked: `Draw2D()` (l.363) → `twod->Clear()` → `C3D_FrameEnd(0)` → `mFrameStarted=false` → `Diag::FrameDone(true)` → `ResetDeviceState()` → `BeginFrame()` → `Super::Update()` → `upd_end` (l.372).
+- `ScreenBegin()` (c3d_framebuffer.cpp:143-179): si `mFrameStarted` o `mFrameBlocked` ya son true, retorna sin hacer nada (l.145). Si no, `C3D_FrameBegin(SYNCDRAW|NONBLOCK)` con hasta 120 reintentos (1 si `Diag::HangReported()`). Si falla, pone `mFrameBlocked=true` y retorna.
 - Los frames 0-11 funcionan sin problemas: el pipeline GPU está sano al inicio.
-- Tras el APT suspend/restore, `aptMainLoop()` devuelve false (prueba 34, l.106). El contexto GPU se recupera (hechos-3ds.md S9: `GSPGPU_AcquireRight` + restaurar VRAM).
-- El HUD se ve bien (dato de Alex, en consola). Solo el menú sale zoomado y repetido arriba y abajo.
-- Preguntas de contraste sobre el zoom del menú (pendiente de confirmar con Alex): ¿la consola (~) se ve bien?, ¿el automapa?, ¿la pantalla de título?
+- Tras el APT suspend/restore, `aptMainLoop()` devuelve false (prueba 34, l.106). El contexto GPU se recupera (hechos-3ds.md S9).
+- El HUD se ve bien (dato de Alex). Solo el menú sale zoomado y repetido arriba y abajo. Consola ~ y pantalla de título se ven bien. Automapa no dibuja líneas.
 
-**Hipótesis A:** `ScreenBegin()` / `C3D_FrameBegin()` no avanza. El contexto GPU está corrupto tras el APT suspend: la GPU no responde y `C3D_FrameBegin` falla los 120 reintentos (2 s), pone `mFrameBlocked=true`, y el bucle repite frame tras frame en el camino blocked sin dibujar nada.
-- Si A es cierta, el log mostrará: `[EXIT] Update:ScreenBegin` pero NO `[EXIT] Update:FrameBeginOK`. El resumen `[C3D] frame N` aparecerá solo si el cuelgue ocurre en los frames 0-11 (T3: resumen solo frames 0-11). Si es en frame >11, solo las marcas `[EXIT]` dicen dónde se para.
+**Hipótesis A:** `ScreenBegin()` falla (`C3D_FrameBegin` no responde), pone `mFrameBlocked=true`. `Update()` entra en el camino blocked (l.337-359) y se cuelga en una de las llamadas dentro: `twod->Clear()`, `ResetDeviceState()`, `BeginFrame()`, `Diag::FrameDone(false)`, o `Super::Update()`.
+- A1 (cuelgue EN el camino blocked): `[EXIT] fN:SB_enter`, `[EXIT] fN:FB_fail r=K` (varias veces), `[EXIT] fN:FB_fail final r=K`, NO `[EXIT] fN:SB_ok`. Luego `[EXIT] fN:blk_*` hasta donde llegue. NO `[EXIT] fN:upd_end`, NO `[EXIT] D_Display done`.
+- A2 (camino blocked completa sin colgarse): `[EXIT] fN:SB_enter`, `[EXIT] fN:FB_fail r=K`, `[EXIT] fN:FB_fail final r=K`, NO `[EXIT] fN:SB_ok`. Luego `[EXIT] fN:blk_clear` → `blk_reset` → `blk_begin` → `blk_diag` → `blk_super` → `upd_end` (l.356). `[EXIT] D_Display done` aparece (solo si `gameloop_abort=true`, d_main.cpp:1686-1688). Si esto pasa, el camino blocked no es la causa.
+- Nota: `ScreenBegin()` puede ser no-op si `mFrameStarted` ya es true (l.145: `if (mFrameStarted || mFrameBlocked) return;`). En ese caso, no aparece `SB_enter` ni `FB_fail` ni `SB_ok`.
 
-**Hipótesis B:** `Draw2D()` se cuelga. El frame begin funciona pero algún draw dentro de `Draw2D()` falla y la GPU se queda trabada.
-- Si B es cierta, el log mostrará: `[EXIT] Update:FrameBeginOK` pero NO `[EXIT] Update:Draw2Ddone`.
+**Hipótesis S (ScreenBegin no vuelve):** `C3D_FrameBegin` o `gspWaitForVBlank` dentro de `ScreenBegin()` no retorna (crash, deadlock, o cuelgue infinito dentro de citro3d). La última marca es `FB_before` (antes de `C3D_FrameBegin`) o `VBlank_before` (antes de `gspWaitForVBlank`). NO aparece `FB_after`, NO `SB_ok`, NO `upd_end`.
 
-**Hipótesis C:** `C3D_FrameEnd()` o código posterior se cuelga. El dibujo se envía pero la GPU no termina o el código después de FrameEnd se para.
-- Si C es cierta, el log mostrará: `[EXIT] Update:Draw2Ddone` pero NO `[EXIT] Update:FrameEnd`.
+**Hipótesis B:** `ScreenBegin()` pasa (`SB_ok`), pero el camino normal se cuelga en `Draw2D()` (l.363), `C3D_FrameEnd()` (l.366) o antes de `upd_end` (l.372).
+- Si B es cierta: `[EXIT] fN:SB_ok`, NO `[EXIT] fN:upd_end`, NO `[EXIT] D_Display done`.
+
+**Hipótesis C:** `Update()` completa (camino normal o blocked), pero el cuelgue es dentro de `D_Display()` después de `Update()`: en `twod->OnFrameDone()` (d_main.cpp:1113, dentro de `End2DAndUpdate()` l.1108-1114, que se llama desde `D_Display()` l.1571).
+- Si C es cierta: `[EXIT] fN:upd_end` aparece, pero NO `[EXIT] D_Display done` (l.1688). El cuelgue es entre `upd_end` y `D_Display done`.
 
 ---
 
@@ -102,67 +104,78 @@ La causa es una o más de estas tres. No es la declaración de `outtc0` ni la fa
 
 **Contexto:** El HUD (vida, munición, cara) se ve bien. El menú sale zoomado y repetido arriba y abajo. La prueba 34 dio `scalemode=0, scalefactor=1.00, screen=400x240, vp=0,0,400x240`: valores normales, sin zoom evidente en las variables del motor.
 
-**Hipótesis M1 (zoom):** El menú usa un viewport o dimensiones de F2DDrawer distintas al HUD, causando el estiramiento (zoom). `C3DRenderState::SetViewport(x,y,w,h)` hace `C3D_SetViewport(y, W-x-w, h, w)` (c3d_renderstate.cpp:123-128), con swap de ejes. Si el menú establece un viewport con dimensiones distintas, los píxeles se estiran.
-- Si M1 es cierta, el log mostrará `[M-VP]` y/o `[M-F2D]` con valores distintos entre frames con menú y frames con HUD.
+**Hipótesis M1 (zoom):** El menú usa un viewport o dimensiones de F2DDrawer distintas al HUD, causando el estiramiento (zoom). `C3DRenderState::SetViewport(x,y,w,h)` hace `C3D_SetViewport(y, W-x-w, h, w)` (c3d_renderstate.cpp:123-129), con swap de ejes.
+- Si M1 es cierta, `[M-fN-VP]` y/o `[M-fN-F2D]` con valores distintos entre frames con menú y con HUD.
 
-**Hipótesis M2 (repetición):** El wrap de la textura del menú está activado (`DTF_Wrap`), haciendo que las coordenadas de textura se repitan en lugar de cortarse. El código en hw_draw2d.cpp:175 pasa `CLAMP_NONE` cuando `DTF_Wrap` está activo, lo que permite que la textura se tilee.
-- Si M2 es cierta, el log mostrará `[M-TX] wrap=yes` en frames con menú pero `wrap=no` (o `CLAMP_XY`) en frames con HUD.
+**Hipótesis M2 (repetición):** El wrap de la textura del menú está activado (`DTF_Wrap`), haciendo que las coordenadas de textura se repitan.
+- Si M2 es cierta, `[M-fN-TX] wrap=1` en frames con menú pero `wrap=0` con HUD.
 
-**Hipótesis M3 (repetición por transformación):** La matriz de transformación 2D del menú (`cmd.transform`) tiene un factor de escala que duplica el contenido. Si `transform.Cells[0][0]` o `transform.Cells[1][1]` es >1, el dibujo se escala y puede repetirse dentro del viewport si las coordenadas de textura también lo permiten.
-- Si M3 es cierta, el log mostrará `[M-XFORM]` con valores de escala >1 en frames con menú, pero 1.0 en frames con HUD.
+**Hipótesis M3 (repetición por transformación):** La matriz de transformación 2D del menú (`cmd.transform.Cells`) tiene escala >1, estirando la imagen.
+- Si M3 es cierta, `[M-fN-XFORM]` con valores >1 en frames con menú, 1 (o -1) con HUD.
 
 **Marcas de medición del menú (solo lectura, sin cambiar comportamiento):**
-En `hw_draw2d.cpp`, dentro de `#ifdef __3DS__`, activas solo en los primeros ~5 frames con menú y ~5 frames con HUD:
-1. `[M-CMDS] N` — número de comandos en `commands.Size()` al entrar en `Draw2D()` (l.68).
-2. `[M-VP] x,y,w,h` — viewport que recibe `state.SetViewport()` (l.54).
-3. `[M-F2D] w,h` — ancho y alto del F2DDrawer (`drawer->GetWidth()`, `drawer->GetHeight()`) (l.55).
-4. `[M-VERT] v0,v1,v2,v3` — primeros 4 vértices del primer comando de dibujo (l.89+, dentro del bucle `for(auto &cmd : commands)`).
-5. `[M-TX] w,h,wrap` — tamaño de textura y si `DTF_Wrap` está activo, del primer comando con textura válida (l.170-175, dentro de `if (cmd.mTexture != nullptr && cmd.mTexture->isValid())`).
-6. `[M-XFORM] a,b,c,d` — matriz de transformación 2x2 del primer comando que la usa (l.147-168, `cmd.transform.Cells`).
-Solo lectura de variables locales, sin cambiar el flujo.
+En `hw_draw2d.cpp`, dentro de `#ifdef __3DS__`, activas en los primeros ~5 frames con menú (`menuactive != MENU_Off`) y ~5 con HUD:
+1. `[M-fN-VP] x,y,w,h` — viewport (l.73).
+2. `[M-fN-F2D] w,h` — F2DDrawer (l.74).
+3. `[M-fN-CMDS] N` — nº comandos (l.109).
+4. `[M-fN-VERT] v0..v3` — primer vértice (l.135-139).
+5. `[M-fN-TX] w,h,wrap` — textura y wrap (l.236).
+6. `[M-fN-XFORM] a,b,c,d` — transformación 2D (l.237-241).
+Solo lectura de variables locales. `menuactive` (menustate.h:33) indica si el menú está abierto.
 
-**Preguntas de contraste pendientes:** ¿la consola (~) se ve bien?, ¿el automapa?, ¿la pantalla de título? (Confirmar con Alex.)
+**Datos de contraste (Alex):** consola ~ se ve bien. Pantalla de título se ve bien. Automapa no dibuja líneas ("no se generaron"). El fallo del menú es específico del menú, no general del renderizado 2D.
 
 ---
 
 **Única variable que cambia:**
-- **Cuelgue:** Cinco marcas `[EXIT]` en `c3d_framebuffer.cpp`, dentro de `#ifdef __3DS__`:
-  1. `[EXIT] Update:Enter` — al entrar en `Update()` (antes de l.325).
-  2. `[EXIT] Update:ScreenBegin` — tras `ScreenBegin()` (l.325).
-  3. `[EXIT] Update:FrameBeginOK` — tras verificar que `!mFrameBlocked` (l.326-327).
-  4. `[EXIT] Update:Draw2Ddone` — tras `Draw2D()` (l.340).
-  5. `[EXIT] Update:FrameEnd` — tras `C3D_FrameEnd(0)` (l.343).
-- **Menú:** 6 marcas `[M-*]` en `hw_draw2d.cpp`, dentro de `#ifdef __3DS__`, activas solo en los primeros ~5 frames con menú y ~5 frames con HUD.
+- **Cuelgue:** Marcas `[EXIT]` en `c3d_framebuffer.cpp`, dentro de `#ifdef __3DS__`, con número de frame `fN`:
+  1. `[EXIT] fN:SB_enter` — al entrar en `ScreenBegin()` (l.147).
+  2. `[EXIT] fN:FB_before` — antes de `C3D_FrameBegin` inicial (l.153).
+  3. `[EXIT] fN:FB_after` — después de `C3D_FrameBegin` inicial (l.156).
+  4. `[EXIT] fN:FB_fail r=K` — tras cada reintento fallido (l.158).
+  5. `[EXIT] fN:VBlank_before` — antes de `gspWaitForVBlank()` (l.160).
+  6. `[EXIT] fN:VBlank_after` — después de `gspWaitForVBlank()` (l.163).
+  7. `[EXIT] fN:FB_fail final r=K` — cuando agota reintentos (l.167).
+  8. `[EXIT] fN:SB_ok` — al salir de `ScreenBegin()` con éxito (l.177).
+  9. `[EXIT] fN:blk_*` — camino blocked (l.340-353).
+  10. `[EXIT] fN:upd_end` — final de `Update()` (l.356 y l.372).
+- **Menú:** 6 marcas `[M-fN-*]` en `hw_draw2d.cpp`, con número de frame, activas en los primeros ~5 frames con menú y ~5 con HUD.
 - Solo `N3DS_Log` + `N3DS_LogFlush`, sin cambios funcionales.
+- **Marcas [EXIT] de d_main.cpp se quedan** (pruebas 35-36, pregunta se profundiza).
 
 **Pasadas en la consola:**
 | Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
 |---|---|---|
-| A | ninguno | Esperar al título (~100 s). Abrir menú (Enter/E). Esperar 10 s (se recogen frames con menú). Cerrar menú. Esperar 60 s (se recogen frames con HUD). HOME→volver. Esperar 60 s. HOME→cerrar. Esperar 15 s. Criterio: el log. |
+| A | ninguno | Esperar al título (~100 s). Abrir menú (Enter/E). Esperar 10 s (frames con menú). Cerrar menú. Esperar 60 s (frames con HUD). HOME→volver. Esperar 60 s. HOME→cerrar. Esperar 15 s. Criterio: el log. |
+| B | ninguno (misma compilación) | Igual que A, pero **sin** abrir/cerrar menú. Solo esperar al título, HOME→volver, esperar 60 s, HOME→cerrar. Para descartar que abrir/cerrar menú deja el estado roto. Si A y B dan el mismo resultado en el cuelgue, la causa no es el menú. |
 
-**Marcadores que se quedan:** los de la pregunta abierta (cierre desde HOME, ahora dentro de `D_Display()` → `Update()`). Los de menú-diag de la prueba 34 se mantienen (ya sirven). Las marcas `[M-*]` nuevas se quedan para esta prueba. **Marcadores que se quitan:** los `[EXIT] Before/After` de `d_main.cpp` (prueba 36, pregunta ya respondida: `D_Display()` es la culpable).
+**Pasada B:** va en **esta prueba**, misma compilación. No añade código nuevo, solo cambia el orden de acciones de Alex. Si el cuelgue ocurre igual sin tocar el menú, se descarta que abrir/cerrar el menú deje el estado GPU roto.
+
+**Pasada "no llamar D_Display tras cerrar":** va en la **prueba 38**. Si esta prueba 37 muestra exactamente dónde se cuelga dentro de `Update()`, la 38 confirma saltando `D_Display()` cuando `gameloop_abort=true`.
+
+**Marcadores que se quedan:** los de la pregunta abierta (cierre desde HOME). Las marcas `[EXIT]` de `d_main.cpp` (pruebas 35-36) se mantienen porque la pregunta se profundiza, no se cierra. Las marcas `[M-*]` nuevas se quedan para esta prueba. Los de menú-diag de la prueba 34 se mantienen. **Marcadores que se quitan:** ninguno.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 37`.
 
 **Autocomprobación (9 preguntas):**
 
-1. **Tabla de diferencias.** No hay shader ni variantes. Las hipótesis del cuelgue (A, B, C) se distinguen por la última marca `[EXIT]` en el log. Las hipótesis del menú (M1, M2, M3) se distinguen por los valores de `[M-VP]`, `[M-F2D]`, `[M-TX]`, `[M-VERT]`, `[M-XFORM]` comparando frames con menú vs HUD. No hay pasadas con archivos de control que cambien el comportamiento.
+1. **Tabla de diferencias.** No hay shader ni variantes. Las hipótesis del cuelgue (A, B, C) se distinguen por la última marca `[EXIT]` en el log. Las hipótesis del menú (M1, M2, M3) por los valores de `[M-fN-*]` comparando frames con `menuactive != MENU_Off` vs `== MENU_Off`. Pasada B (sin menú) descarta que el menú deje el estado roto.
 
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí, para el cuelgue: A se corta tras `[EXIT] Update:ScreenBegin` (sin `FrameBeginOK`), B tras `[EXIT] Update:FrameBeginOK` (sin `Draw2Ddone`), C tras `[EXIT] Update:Draw2Ddone` (sin `FrameEnd`). Para el menú: M1 predice `[M-VP]` y/o `[M-F2D]` distintos, M2 predice `[M-TX] wrap=yes` solo en menú, M3 predice `[M-XFORM]` con escala >1 solo en menú.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí, para el cuelgue: S se corta en `FB_before` o `VBlank_before` (sin `FB_after`), A1 se corta tras `FB_fail final` y `blk_*` (sin `upd_end`), A2 muestra todo completo con `upd_end` y `D_Display done`, B muestra `SB_ok` pero NO `upd_end`, C muestra `upd_end` pero NO `D_Display done`. Para el menú: M1 → `[M-fN-VP]`/`[M-fN-F2D]` distintos, M2 → `[M-fN-TX] wrap=1` solo en menú, M3 → `[M-fN-XFORM]` escala >1 solo en menú.
 
-3. **¿Lo que dices que se verá en pantalla puede verse?** Para el cuelgue, no: el criterio es el log. Para el menú, la pantalla ya muestra el problema conocido (zoomado y repetido), pero el diagnóstico viene del log.
+3. **¿Lo que dices que se verá en pantalla puede verse?** Para el cuelgue, no: el criterio es el log. Para el menú, la pantalla ya muestra el problema conocido, el diagnóstico viene del log.
 
-4. **¿Se resuelve en una sola compilación?** Sí: una pasada recoge tanto las marcas `[EXIT]` como `[M-*]`. El cuelgue se diagnostica al final (HOME→cerrar) y el menú se mide al abrirlo (~10 s antes).
+4. **¿Se resuelve en una sola compilación?** Sí: una compilación, dos pasadas (A con menú, B sin menú). El cuelgue se diagnostica al final (HOME→cerrar) y el menú se mide al abrirlo.
 
-5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `C3D_FrameBegin` (citro3d `renderqueue.c`, hechos-3ds.md F1-F2), `C3D_FrameEnd` (ídem, F3-F4), `ScreenBegin()` (c3d_framebuffer.cpp:142-168), `Update()` (c3d_framebuffer.cpp:323-349), camino blocked (l.326-336), `Draw2D()` (hw_draw2d.cpp:50-74), `SetViewport` (c3d_renderstate.cpp:123-128), `SetMaterial` con wrap (hw_draw2d.cpp:170-176), `cmd.transform` (hw_draw2d.cpp:147-168), MENU-DIAG (d_main.cpp:1281-1306).
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `ScreenBegin()` (c3d_framebuffer.cpp:143-179), `Update()` (l.334-374), camino blocked (l.337-359), `C3D_FrameBegin` (citro3d, hechos-3ds.md F1-F2), `C3D_FrameEnd` (F3-F4), `menuactive` (menustate.h:25-33), `SetViewport` (c3d_renderstate.cpp:123-129), wrap flag (hw_draw2d.cpp:229).
 
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Para el cuelgue: si aparece `[EXIT] Update:FrameEnd`, el cuelgue es después de `Update()`: ¿`twod->OnFrameDone()`? ¿`S_UpdateMusic()`? Si no llega ni a `Update:Enter`, es antes de `screen->Update()` en `End2DAndUpdate()`. Para el menú: si `[M-VP]`, `[M-F2D]`, `[M-TX]`, `[M-VERT]`, `[M-XFORM]` son idénticos entre menú y HUD, el problema no está en estos valores y hay que mirar más abajo (shader, textura, o cómo se interpretan las coordenadas).
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Para el cuelgue: si aparece `D_Display done` (solo con `gameloop_abort=true`), el cuelgue es después de `Update()`: ¿`twod->OnFrameDone()`? ¿`S_UpdateMusic()`? Si A y B dan igual, no es el menú lo que rompe el estado. Para el menú: si `[M-fN-*]` son idénticos entre menú y HUD, hay que mirar más abajo (shader, textura, interpretación de coordenadas).
 
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control. El orden de acciones está claro en la tabla.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: la tabla dice qué hacer en cada pasada. Pasada A abre/cierra menú, B no.
 
-8. **¿Lo que vas a añadir ya existe?** Sí: `N3DS_Log` y `N3DS_LogFlush` ya existen. Las marcas `[EXIT]` y `[M-*]` son nuevas pero no entran en conflicto con nada. No se cambia el comportamiento ni el camino de salida.
+8. **¿Lo que vas a añadir ya existe?** Sí: `N3DS_Log`, `N3DS_LogFlush`, `menuactive`. Las marcas nuevas no entran en conflicto. No se cambia el comportamiento. CMakeLists.txt incluye los archivos (.cpp ya están compilados).
 
-9. **¿Qué se ejecuta después de tu cambio?** Cada marca tiene `N3DS_LogFlush()` con `fsync`. Flujo: `D_Display()` → `End2DAndUpdate()` → `screen->Update()` → marcas `[EXIT]` dentro de `Update()` → si todo va bien, `[EXIT] D_Display done` (ya existe en d_main.cpp). Las marcas `[M-*]` se emiten dentro de `Draw2D()` en hw_draw2d.cpp: `[M-CMDS]`, `[M-VP]`, `[M-F2D]` al entrar (l.50-74); `[M-VERT]`, `[M-TX]`, `[M-XFORM]` dentro del bucle de comandos (l.89-176).
+9. **¿Qué se ejecuta después de tu cambio?** Cada marca tiene `N3DS_LogFlush()` con `fsync`. Flujo: `D_Display()` → `End2DAndUpdate()` → `screen->Update()` → marcas `[EXIT]` dentro de `ScreenBegin()` (l.147,158,167,177) y `Update()` (l.340-372) → `twod->OnFrameDone()` (l.1113) → si todo va bien y `gameloop_abort=true`, `[EXIT] D_Display done` (d_main.cpp:1688). Las `[M-fN-*]` dentro de `Draw2D()` en hw_draw2d.cpp (l.73-241).
 
 ## Tabla de la revisora
 
@@ -484,3 +497,7 @@ D_Display ();        // l.1654: renderiza el fotograma (llama al backend GPU)
 - Entrada de mandos: el gestor del joystick está vacío (punto 2).
 - Líneas y puntos (automapa), niebla, luz, portales, sonido, controles 3DS, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
 - La carga de las fuentes TrueType latinas genera atlas de 1 MB cada una con el juego de caracteres completo: lento y caro en memoria. Recortar el juego de caracteres cuando el resto funcione.
+
+## Pendientes
+
+- **Prefetch abort al entrar en OPTIONS:** compilación prueba 36 (commit 3c9051003). PC=0x00B44200 → `svcBreak` (svc.s:401, libctru). LR=0x00B39258 → `GPUCMD_AddInternal` (gpu.c:33, libctru). La consola se cerró con crash dump. Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`. Pendiente: investigar qué llamada al GPU driver falló.
