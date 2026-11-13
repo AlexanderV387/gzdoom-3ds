@@ -38,16 +38,18 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 
 **Lo que ya sabemos:**
 - Punto 12: Log A (prueba 38) última marca `D_Cleanup start`; Log B llega a `GameMain exit 0` pero crash post-main.
-- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~25 funciones. Las que tocan GPU: `TexMan.DeleteAll()`, `CleanSWDrawer()`, `S_Shutdown()`.
+- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~30 funciones. Las que tocan GPU: `TexMan.DeleteAll()` (l.4585). `CleanSWDrawer()` y `S_Shutdown()` son CPU/audio.
 
 **Hipótesis:** `D_Cleanup()` se para en una función concreta. Con marcas `[EXIT]` antes y después de los grupos de funciones, la marca ausente dice cuál.
 
-**Grupos de marcas (5 marcas, 5 grupos):**
+**Grupos de marcas (6 marcas, 6 intervalos):**
+0. `[EXIT] DC_start` — al inicio de `D_Cleanup()` (línea 4542, antes de `debugServer`)
 1. `[EXIT] DC_sound` — después de `S_ClearSoundData()` (línea 4555)
 2. `[EXIT] DC_menu` — después de `M_ClearMenus()` (4559)
 3. `[EXIT] DC_game` — después de `P_Shutdown()` (4567)
 4. `[EXIT] DC_tex` — después de `TexMan.DeleteAll()` (4585)
-5. `[EXIT] DC_end` — después de `PClass::StaticShutdown()` (4610)
+5. `[EXIT] DC_class` — después de `PClass::StaticShutdown()` (4610)
+6. `[EXIT] DC_end` — al final de `D_Cleanup()` (línea 4618, antes de `}`)
 
 **Pasada única** (sin archivo control, sin SYNCDRAW como la 38A): la compilación ya trae sin SYNCDRAW y las marcas nuevas.
 
@@ -55,22 +57,22 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 |---|---|---|
 | Única | ninguno | ¿Vuelve al menú HOME o se cuelga? |
 
-**Única variable:** las marcas `[EXIT]` dentro de `D_Cleanup()`.
+**Única variable:** las marcas `[EXIT]` dentro de `D_Cleanup()` (solo lectura, sin cambiar lógica).
 
-**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 5 nuevas en `D_Cleanup()`.
+**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 6 nuevas en `D_Cleanup()`.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 39`
 
-**Autocomprobación:**
-1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +5 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: si falta `DC_sound` → problema en sonido; `DC_menu` → menús; `DC_game` → estado del juego; `DC_tex` → texturas; `DC_end` → clases/VM; si las 5 salen → fuera de `D_Cleanup()`.
-3. **Pantalla:** mismo criterio, ¿vuelve o se cuelga?.
-4. **Una compilación:** sí, sin interruptores.
-5. **API:** solo `N3DS_Log`, S10.
-6. **Si todo da igual:** si las 5 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC::FullGC()`, `R_Shutdown()`, etc.).
-7. **Preparación:** sin archivos de control.
-8. **¿Ya existe?** No, son marcas nuevas bajo `#ifdef __3DS__`.
-9. **¿Qué se ejecuta?** `D_Cleanup()` con marcas entre grupos. Si marca N falta, la función del grupo N es la culpable. Grupo 3→4 es el más grande (14 funciones, incluye `TexMan.DeleteAll()`).
+**Autocomprobación** (las 9 preguntas de `plantilla-prueba.md`, copiadas tal cual):
+1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +6 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: si falta `DC_sound` → problema entre inicio y sonido; `DC_menu` → entre sonido y menús; `DC_game` → entre menús y P_Shutdown; `DC_tex` → entre P_Shutdown y TexMan; `DC_class` → entre TexMan y PClass; `DC_end` → entre PClass y fin; si las 6 salen → fuera de `D_Cleanup()`.
+3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es el log, no la pantalla (¿vuelve al HOME o se cuelga?).
+4. **¿Se resuelve en una sola compilación?** Sí, sin interruptores.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Solo `N3DS_Log`, ya usada y verificada (S10 de `hechos-3ds.md`).
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si las 6 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC::FinalGC/FullGC/DelSoftRootHead` de `GameMain`, `R_Shutdown()`, `I_ShutdownGraphics()`, etc.). Nota: `GC::FullGC` dentro de `D_Cleanup()` (l.4594, 4612) está cubierto por las marcas 4→5 y 5→6.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sin archivos de control, solo copiar el `.3dsx`.
+8. **¿Lo que vas a añadir ya existe?** No, son marcas nuevas bajo `#ifdef __3DS__` en `d_main.cpp`.
+9. **¿Qué se ejecuta después de tu cambio?** `D_Cleanup()` con marcas entre grupos. Si marca N falta, el código entre la marca N-1 y N es la culpable. Después de `D_Cleanup()` sigue `GameMain` con más llamadas de limpieza.
 
 ## Registro de pruebas
 
