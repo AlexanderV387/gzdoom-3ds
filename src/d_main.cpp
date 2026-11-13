@@ -4552,6 +4552,9 @@ void D_Cleanup()
 
 	// Music and sound should be stopped first
 	S_StopMusic(true);
+#ifdef __3DS__
+	N3DS_Log("[EXIT] DC after S_StopMusic"); N3DS_LogFlush();
+#endif
 	S_ClearSoundData();
 #ifdef __3DS__
 	N3DS_Log("[EXIT] DC after S_ClearSoundData"); N3DS_LogFlush();
