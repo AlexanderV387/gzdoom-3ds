@@ -20,60 +20,57 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 9. **Menú:** sale grande y repetido arriba y abajo. El HUD, la consola `~` y la pantalla de título se ven bien (Alex, en persona, 13 nov.). Los valores de escala del motor son normales (34).
 10. **OPTIONS cierra el juego:** `svcBreak` desde `GPUCMD_AddInternal` (resuelto con `addr2line` sobre la 36): el búfer de comandos de la GPU se llena (`hechos-3ds.md` F8).
 11. **`C3D_FrameBegin` bloquea al cerrar desde HOME.** Con `C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK` se queda indefinidamente en el fotograma 2016. La marca `FB_before` aparece pero no `FB_after` (prueba 37).
-12. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
+12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). Pero `D_Cleanup()` se rompe: en la pasada A la última marca es `D_Cleanup start`; en la B (saltando `D_Display()`) llega a `GameMain exit 0` pero Luma crasha después (crash dump PC=0, LR=2) (prueba 38).
+13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
 
 ## Pregunta abierta
 
-**¿Por qué `C3D_FrameBegin` no vuelve al cerrar desde HOME?** (prueba 38). Después, el menú.
+**¿Qué función dentro de `D_Cleanup()` falla al cerrar desde HOME?** (prueba 39). Después, el crash post-main y el menú.
 
-## Prueba 38 (cierre desde HOME: ¿sin SYNCDRAW vuelve?)
+## Prueba 39 (¿dónde se para dentro de `D_Cleanup()`?)
 
 **Lo que se pidió:**
-- [x] Prueba 38 = cierre desde HOME (menú pasa a 39)
-- [x] Pregunta: tras la orden de cerrar, ¿el juego sale bien si no espera las vblank?
-- [x] Hipótesis: dejan de llegar vblank y `C3D_FrameSync` espera para siempre
-- [x] Pasada A: sin SYNCDRAW cuando `gameloop_abort` activo
-- [x] Pasada B: con archivo de control, no llamar a `D_Display()`
-- [x] Una sola compilación
-- [x] Plantilla como mucho 60 líneas, pasar por @revisora
+- [x] Prueba 39 = dentro de `D_Cleanup()` (sin marcas aún)
+- [x] Pregunta: ¿qué función de `D_Cleanup()` no vuelve?
+- [x] Plantilla escrita
 
-**Pregunta:** ¿Tras la orden de cerrar, el juego vuelve al menú HOME si `C3D_FrameBegin` no espera las vblank?
+**Pregunta:** ¿Qué función dentro de `D_Cleanup()` se queda sin volver al cerrar desde HOME?
 
 **Lo que ya sabemos:**
-- Punto 11: `C3D_FrameBegin(SYNCDRAW|NONBLOCK)` bloquea en f2016 (prueba 37). Marca `FB_before` sí, `FB_after` no.
-- F2: con `SYNCDRAW`, `C3D_FrameSync()` buclea `gspWaitForAnyEvent()` hasta que avanzan los contadores vblank de las dos pantallas (`citro3d/source/renderqueue.c:75-84`). `NONBLOCK` no evita esta espera.
-- Punto 8: tras volver de HOME el juego dibuja con normalidad 60 s.
+- Punto 12: Log A (prueba 38) última marca `D_Cleanup start`; Log B llega a `GameMain exit 0` pero crash post-main.
+- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~25 funciones. Las que tocan GPU: `TexMan.DeleteAll()`, `CleanSWDrawer()`, `S_Shutdown()`.
 
-**Hipótesis A (vblank dejan de llegar):** tras `gameloop_abort`, las vblank ya no llegan a la app. Sin `SYNCDRAW`, `C3D_FrameBegin` salta `C3D_FrameSync()` y vuelve (F2). Si devuelve `false` (cola ocupada, F1), el bucle de reintentos llama a `gspWaitForVBlank()` (c3d_framebuffer.cpp:189), que también espera vblank → se para en `VBlank_before`. Si devuelve `true`, sale `FB_after` y sigue el camino de salida (`Update()` → `EndFrame()` → `C3D_FrameEnd` → `quickexit` → `M_Quit`), con marcas `[EXIT]` en cada paso.
-- Si A es cierta (pasada A): sale `FB_after` + marcas de salida hasta `M_Quit`, O sale `FB_fail` + `VBlank_before` y se para ahí.
-**Hipótesis B descartada por el código:** con `NONBLOCK` y sin `SYNCDRAW`, `C3D_FrameBegin` no espera nada (F2), así que no puede quedarse bloqueada en esa llamada.
-**Hipótesis C (problema más allá de `C3D_FrameBegin`):** incluso sin `SYNCDRAW`, el camino de salida se para en otro sitio (`C3D_FrameEnd`, `quickexit`, `M_Quit`).
-- Si C es cierta (pasada A): sale `FB_after` y algunas marcas de salida, pero no llega a `D_Display done`.
+**Hipótesis:** `D_Cleanup()` se para en una función concreta. Con marcas `[EXIT]` antes y después de los grupos de funciones, la marca ausente dice cuál.
 
-**Pasada A (sin archivo de control):** `ScreenBegin()` llama a `C3D_FrameBegin(C3D_FRAME_NONBLOCK)` sin `SYNCDRAW` cuando `gameloop_abort` está activo.
-**Pasada B (archivo `c3d-exit-nodisplay.txt` en sdmc:/3ds/gzdoom/):** con `gameloop_abort` activo, saltar `D_Display()` entero.
+**Grupos de marcas (5 marcas, 5 grupos):**
+1. `[EXIT] DC_sound` — después de `S_ClearSoundData()` (línea 4555)
+2. `[EXIT] DC_menu` — después de `M_ClearMenus()` (4559)
+3. `[EXIT] DC_game` — después de `P_Shutdown()` (4567)
+4. `[EXIT] DC_tex` — después de `TexMan.DeleteAll()` (4585)
+5. `[EXIT] DC_end` — después de `PClass::StaticShutdown()` (4610)
+
+**Pasada única** (sin archivo control, sin SYNCDRAW como la 38A): la compilación ya trae sin SYNCDRAW y las marcas nuevas.
 
 | Pasada | Archivos de control | Qué mirar en pantalla |
 |---|---|---|
-| A | ninguno | ¿Vuelve al menú HOME o se cuelga? |
-| B | `c3d-exit-nodisplay.txt` | ¿Vuelve al menú HOME? (si salta D_Display debería volver) |
+| Única | ninguno | ¿Vuelve al menú HOME o se cuelga? |
 
-**Única variable que cambia:** la pasada A ya cambia `C3D_FrameBegin` sin `SYNCDRAW` respecto a la base (prueba 37). Entre A y B, la variable es si `D_Display()` se llama o se salta: en B se salta entero, así que ni `ScreenBegin()` ni `C3D_FrameBegin` se ejecutan. A vs B aísla si el problema está dentro de `D_Display()` más allá de `C3D_FrameBegin`.
+**Única variable:** las marcas `[EXIT]` dentro de `D_Cleanup()`.
 
-**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp`.
+**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 5 nuevas en `D_Cleanup()`.
 
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 38`
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 39`
 
 **Autocomprobación:**
-1. **Tabla de diferencias.** No hay shader. A vs B: cambia solo si `D_Display()` se llama. Dentro de A (vs base 37): cambia `C3D_FrameBegin` sin `SYNCDRAW`. Una variable por comparación.
-2. **¿Cada hipótesis predice algo distinto en el log?** Hipótesis A: sale `FB_after` + marcas de salida O `FB_fail` + `VBlank_before`. Hipótesis C: sale `FB_after` pero no llega a `D_Display done`. Resultados distintos.
-3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es si Alex vuelve al menú HOME o la consola se cuelga.
-4. **¿Se resuelve en una sola compilación?** Sí: `c3d-exit-nodisplay.txt` como interruptor.
-5. **¿Cada afirmación sobre una API tiene su fuente?** F2: `citro3d/source/renderqueue.c:75-84` y `:163-177`. F1: `hechos-3ds.md:13`.
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si A y B dan igual, el problema no está en `D_Display()` sino más allá (`quickexit`, `M_Quit`). Si A se cuelga pero B vuelve, el problema está dentro de `D_Display()`.
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** `c3d-exit-nodisplay.txt` vacío, nombre único.
-8. **¿Lo que vas a añadir ya existe?** `c3d-exit-nodisplay.txt` no existe en el código. Se modifica `ScreenBegin()` y `d_main.cpp` bajo `#ifdef __3DS__`.
-9. **¿Qué se ejecuta después de tu cambio?** Tras `C3D_FrameBegin` sin `SYNCDRAW`: si `true`, `Update()` → `EndFrame()` → `C3D_FrameEnd`. Si `false`, `mFrameBlocked=true`, `Update()` camino bloqueado. En ambos sale `FB_after`. Después: `quickexit` → `M_Quit`. El log sigue abierto hasta `N3DS_LogClose()`.
+1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +5 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: si falta `DC_sound` → problema en sonido; `DC_menu` → menús; `DC_game` → estado del juego; `DC_tex` → texturas; `DC_end` → clases/VM; si las 5 salen → fuera de `D_Cleanup()`.
+3. **Pantalla:** mismo criterio, ¿vuelve o se cuelga?.
+4. **Una compilación:** sí, sin interruptores.
+5. **API:** solo `N3DS_Log`, S10.
+6. **Si todo da igual:** si las 5 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC::FullGC()`, `R_Shutdown()`, etc.).
+7. **Preparación:** sin archivos de control.
+8. **¿Ya existe?** No, son marcas nuevas bajo `#ifdef __3DS__`.
+9. **¿Qué se ejecuta?** `D_Cleanup()` con marcas entre grupos. Si marca N falta, la función del grupo N es la culpable. Grupo 3→4 es el más grande (14 funciones, incluye `TexMan.DeleteAll()`).
 
 ## Registro de pruebas
 
@@ -106,7 +103,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 35 | ¿Dónde se para el cierre desde HOME? | ✅ Entre `TryRunTics done` y `D_Display done`: `I_StartTic()`, `D_ProcessEvents()` o `D_Display()`. Hipótesis C descartada (el bucle llega a la iteración). |
 | 36 | ¿Cuál de las 3 funciones se cuelga? | ✅ `D_Display()` es la culpable. `Before D_Display` presente, `D_Display done` ausente. I_StartTic y D_ProcessEvents completan sin problemas. |
 | 37 | ¿Qué paso de `D_Display()` se para al cerrar desde HOME? | ✅ `C3D_FrameBegin` bloquea indefinidamente (f2016, con NONBLOCK). Hipótesis S confirmada, A1/B/C descartadas. |
-| 38 | ¿Por qué `C3D_FrameBegin` no vuelve? | Siguiente |
+| 38 | ¿Por qué `C3D_FrameBegin` no vuelve? | ✅ Sin SYNCDRAW vuelve (`FB_after`). Pero `D_Cleanup` se rompe: A se para en `D_Cleanup start`, B (sin D_Display) llega a `GameMain exit 0` pero Luma crasha post-main |
 
 
 ## Pendientes que no son la pregunta abierta

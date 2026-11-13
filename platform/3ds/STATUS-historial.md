@@ -383,3 +383,24 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 |---|---|---|
 | `C3D_FrameBegin(C3D_FRAME_SYNCDRAW \| C3D_FRAME_NONBLOCK)` bloquea indefinidamente al cerrar desde HOME, incluso con el flag `NONBLOCK` | El problema está dentro de `C3D_FrameBegin`, en la espera de que termine el trabajo GPU del frame anterior (`gspWaitForEvent` interno) | Qué dentro de `C3D_FrameBegin` bloquea exactamente (citro3d es código cerrado en parte); si liberar recursos GPU antes de llamar a `C3D_FrameBegin` evitara el bloqueo |
 
+## Prueba 38 (cierre desde HOME: ¿sin SYNCDRAW vuelve?)
+
+**Pregunta:** ¿Tras la orden de cerrar, el juego vuelve al menú HOME si `C3D_FrameBegin` no espera las vblank?
+
+**Resultados:**
+- **Log A** (sin SYNCDRAW): `FB_after` ✅ → `C3D_FrameBegin` volvió. `D_Display done` ✅. Toda la cadena de salida hasta `CExitEvent caught` ✅. Última marca: `D_Cleanup start`. Se para **dentro** de `D_Cleanup()`.
+- **Log B** (saltando `D_Display()`): `skip D_Display` → toda la cadena completa hasta `GameMain exit 0` ✅. Crash dump: PC=0, LR=2, CPSR=0 → crash **post-main()**, en Luma/ARM9.
+
+**Conclusiones por hipótesis:**
+| Hipótesis | Resultado |
+|---|---|
+| **A (vblank dejan de llegar):** sin `SYNCDRAW`, `C3D_FrameBegin` vuelve | ✅ **CONFIRMADA** (Log A: `FB_after` presente) |
+| **B (NONBLOCK no espera):** descartada por código (F2) | — |
+| **C (problema más allá de `C3D_FrameBegin`):** el camino de salida se para en otro sitio | ✅ **CONFIRMADA** (Log A: se para en `D_Cleanup`; Log B: crash post-main) |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). El problema del cierre no es solo `C3D_FrameBegin`: `D_Cleanup` se rompe cuando `D_Display()` se llamó en el último frame, y aunque se salte `D_Display()`, algo no se limpia bien y Luma crasha post-main | `D_Display()` en el último frame del cierre deja estado GPU o de citro3d que rompe `D_Cleanup()` (que llama a `R_Shutdown()`, `I_ShutdownGraphics()`, `TexMan.DeleteAll()`, etc.) | Qué función dentro de `D_Cleanup` falla exactamente; qué recurso no liberado causa el crash post-main de la pasada B |
+
