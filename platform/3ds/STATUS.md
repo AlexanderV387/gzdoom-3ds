@@ -43,6 +43,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 
 **Por decidir:** si una segunda pasada (archivo de control) no llama a `D_Display()` tras la orden de cerrar, como posible arreglo, va aquí o en la 38.
 
+Azahar: pendiente RomFS
+
 ## Prueba 38 (siguiente: el menú)
 
 Pendiente de plantilla, después de la 37. Lo que tiene que comparar, menú frente a HUD, en unos pocos fotogramas de cada uno y con el número de fotograma: cuántos `Draw2D` hay por fotograma, el viewport y el tamaño del `F2DDrawer`, y del primer comando que dibuja: sus vértices, el tamaño de la textura, el wrap y la matriz de transformación (con decimales). Las hipótesis tienen que explicar que el menú salga **repetido**, y que el HUD, la consola y el título se vean bien. Puede tener relación con el cierre en OPTIONS (punto 10): menús con mucho texto, muchos comandos de GPU.

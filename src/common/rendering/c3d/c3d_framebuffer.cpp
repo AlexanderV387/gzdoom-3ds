@@ -6,6 +6,7 @@
 ** 2026 AlexanderV387 (Nintendo 3DS port). GPL v3 (see LICENSE).
 */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "c3d_backend.h"
@@ -147,7 +148,9 @@ void C3DFrameBuffer::ScreenBegin()
 
 	if (gameloop_abort)
 	{
-		N3DS_Log("[EXIT] f%d:SB_enter mFrameStarted=%d mFrameBlocked=%d\n", Diag::FrameN(), mFrameStarted, mFrameBlocked);
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[EXIT] f%d:SB_enter mFrameStarted=%d mFrameBlocked=%d\n", Diag::FrameN(), mFrameStarted, mFrameBlocked);
+		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
 
@@ -156,13 +159,17 @@ void C3DFrameBuffer::ScreenBegin()
 	// the hang is reported, one retry per frame is enough.
 	if (gameloop_abort)
 	{
-		N3DS_Log("[EXIT] f%d:FB_before\n", Diag::FrameN());
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[EXIT] f%d:FB_before\n", Diag::FrameN());
+		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
 	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
 	if (gameloop_abort)
 	{
-		N3DS_Log("[EXIT] f%d:FB_after\n", Diag::FrameN());
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[EXIT] f%d:FB_after\n", Diag::FrameN());
+		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
 	int retries = 0;
@@ -171,15 +178,20 @@ void C3DFrameBuffer::ScreenBegin()
 	{
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:FB_fail r=%d\n", Diag::FrameN(), retries + 1);
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:FB_fail r=%d\n", Diag::FrameN(), retries + 1);
+			N3DS_Log(buf);
 			N3DS_LogFlush();
-			N3DS_Log("[EXIT] f%d:VBlank_before\n", Diag::FrameN());
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:VBlank_before\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		gspWaitForVBlank();
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:VBlank_after\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:VBlank_after\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		retries++;
@@ -190,7 +202,9 @@ void C3DFrameBuffer::ScreenBegin()
 	{
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:FB_fail final r=%d\n", Diag::FrameN(), retries);
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:FB_fail final r=%d\n", Diag::FrameN(), retries);
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		mFrameBlocked = true;	// this frame draws nothing; Update() clears it for the next one
@@ -203,7 +217,9 @@ void C3DFrameBuffer::ScreenBegin()
 
 	if (gameloop_abort)
 	{
-		N3DS_Log("[EXIT] f%d:SB_ok\n", Diag::FrameN());
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[EXIT] f%d:SB_ok\n", Diag::FrameN());
+		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
 }
@@ -369,38 +385,50 @@ void C3DFrameBuffer::Update()
 		// No frame could be started: drop this frame's 2D and try again on the next one.
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:blk_clear\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:blk_clear\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		twod->Clear();
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:blk_reset\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:blk_reset\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		TheRenderState->ResetDeviceState();
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:blk_begin\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:blk_begin\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		TheRenderState->BeginFrame();
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:blk_diag\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:blk_diag\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		Diag::FrameDone(false);
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:blk_super\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:blk_super\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		Super::Update();
 		mFrameBlocked = false;
 		if (gameloop_abort)
 		{
-			N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
+			char buf[128];
+			snprintf(buf, sizeof(buf), "[EXIT] f%d:upd_end\n", Diag::FrameN());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 		return;
@@ -419,7 +447,9 @@ void C3DFrameBuffer::Update()
 	Super::Update();
 	if (gameloop_abort)
 	{
-		N3DS_Log("[EXIT] f%d:upd_end\n", Diag::FrameN());
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[EXIT] f%d:upd_end\n", Diag::FrameN());
+		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
 }
