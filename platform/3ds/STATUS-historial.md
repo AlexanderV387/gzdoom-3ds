@@ -355,3 +355,31 @@ La imagen está corregida (prueba 32). HOME suspende/restaura (prueba 33). `D_Di
 
 Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colormul=5`, `texmat=6`. DVLB con 1 DVLE.
 
+## Prueba 37 (cerrada, 13 nov. 2026)
+
+**Pregunta:** ¿Qué paso de `D_Display()` → `C3DFrameBuffer::Update()` no vuelve al cerrar desde HOME?
+
+**Log analizado:** 92 líneas. `Test:` confirma prueba 37.
+
+**Última marca presente:** `[EXIT] f2016:FB_before` (línea 92 del log).
+**Primera marca ausente:** `[EXIT] f2016:FB_after`.
+
+**Código entre marcas** (`c3d_framebuffer.cpp`):
+- Línea 162-165: marca `FB_before` + `N3DS_LogFlush()`
+- Línea 167: `C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK)` ← AQUÍ SE QUEDA
+- Línea 170-174: marca `FB_after` (nunca llega)
+
+**Hipótesis:**
+| Hipótesis | Resultado | Línea del log |
+|---|---|---|
+| **S:** `ScreenBegin()` no vuelve (`C3D_FrameBegin` o `gspWaitForVBlank`) | ✅ **CONFIRMADA** | Línea 92: `FB_before` presente, `FB_after` ausente |
+| **A1:** `C3D_FrameBegin` falla reintentos, camino bloqueado se para | ❌ Descartada | No sale `FB_fail` ni `blk_*` |
+| **B:** `ScreenBegin()` termina, camino normal se para en `Draw2D()`/`FrameEnd()` | ❌ Descartada | No sale `SB_ok` |
+| **C:** `Update()` termina, se para después en `OnFrameDone()` | ❌ Descartada | No sale `upd_end` |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| `C3D_FrameBegin(C3D_FRAME_SYNCDRAW \| C3D_FRAME_NONBLOCK)` bloquea indefinidamente al cerrar desde HOME, incluso con el flag `NONBLOCK` | El problema está dentro de `C3D_FrameBegin`, en la espera de que termine el trabajo GPU del frame anterior (`gspWaitForEvent` interno) | Qué dentro de `C3D_FrameBegin` bloquea exactamente (citro3d es código cerrado en parte); si liberar recursos GPU antes de llamar a `C3D_FrameBegin` evitara el bloqueo |
+

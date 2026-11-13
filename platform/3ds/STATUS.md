@@ -19,35 +19,16 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **Cierre desde HOME:** la orden llega (`aptMainLoop()` = false → `gameloop_abort`) y el juego se para **dentro de `D_Display()`**: sale `Before D_Display` y no `D_Display done` (35, 36). Tras volver de HOME el juego dibuja con normalidad (Alex, 60 s jugando), y libctru recupera la GPU al despertar (`hechos-3ds.md` S9).
 9. **Menú:** sale grande y repetido arriba y abajo. El HUD, la consola `~` y la pantalla de título se ven bien (Alex, en persona, 13 nov.). Los valores de escala del motor son normales (34).
 10. **OPTIONS cierra el juego:** `svcBreak` desde `GPUCMD_AddInternal` (resuelto con `addr2line` sobre la 36): el búfer de comandos de la GPU se llena (`hechos-3ds.md` F8).
-11. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
+11. **`C3D_FrameBegin` bloquea al cerrar desde HOME.** Con `C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK` se queda indefinidamente en el fotograma 2016. La marca `FB_before` aparece pero no `FB_after` (prueba 37).
+12. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
 
 ## Pregunta abierta
 
-**¿En qué paso de `D_Display()` se para el cierre desde HOME?** (prueba 37). Después, el menú (prueba 38).
+**¿Por qué `C3D_FrameBegin` no vuelve al cerrar desde HOME?** (prueba 38). Después, el menú.
 
-## Prueba 37 (en preparación: solo el cierre desde HOME)
+## Prueba 38 (siguiente: ¿por qué `C3D_FrameBegin` no vuelve?)
 
-**Pregunta:** ¿qué paso de `D_Display()` → `C3DFrameBuffer::Update()` no vuelve al cerrar desde HOME?
-
-**Hipótesis** (detalle de cada una: commit `a6257348d`):
-- **S:** `ScreenBegin()` no vuelve: se queda en `C3D_FrameBegin` o en `gspWaitForVBlank`. Última marca `FB_before` o `VBlank_before`; no sale `FB_after` ni `SB_ok`.
-- **A1:** `C3D_FrameBegin` falla los reintentos (`FB_fail final`) y el camino "bloqueado" de `Update()` se para: salen `blk_*` hasta donde llegue, no sale `upd_end`.
-- **B:** `ScreenBegin()` termina (`SB_ok`) y el camino normal se para en `Draw2D()` o `C3D_FrameEnd()`: no sale `upd_end`.
-- **C:** `Update()` termina (`upd_end`) y se para después, en `twod->OnFrameDone()` (d_main.cpp:1113): no sale `D_Display done`.
-- (La variante "el camino bloqueado termina" ya la descarta la 36: habría salido `D_Display done`.)
-- Ojo: si el fotograma ya empezó antes (`mFrameStarted`), `ScreenBegin()` vuelve sin hacer nada y sus marcas no salen.
-
-**Marcas:** las de `ScreenBegin()` y `Update()` en `c3d_framebuffer.cpp` (commit `a6257348d`), y las `[EXIT]` de `d_main.cpp`, que se quedan. **Falta:** las nuevas tienen que escribir solo con `gameloop_abort` activo, como las de `d_main.cpp`; ahora escriben y hacen `fsync` en cada fotograma desde el arranque.
-
-**Pasada única:** esperar al título (~100 s), HOME → volver, esperar 60 s, HOME → cerrar, esperar 15 s. Criterio: el log.
-
-**Por decidir:** si una segunda pasada (archivo de control) no llama a `D_Display()` tras la orden de cerrar, como posible arreglo, va aquí o en la 38.
-
-Azahar: pendiente RomFS
-
-## Prueba 38 (siguiente: el menú)
-
-Pendiente de plantilla, después de la 37. Lo que tiene que comparar, menú frente a HUD, en unos pocos fotogramas de cada uno y con el número de fotograma: cuántos `Draw2D` hay por fotograma, el viewport y el tamaño del `F2DDrawer`, y del primer comando que dibuja: sus vértices, el tamaño de la textura, el wrap y la matriz de transformación (con decimales). Las hipótesis tienen que explicar que el menú salga **repetido**, y que el HUD, la consola y el título se vean bien. Puede tener relación con el cierre en OPTIONS (punto 10): menús con mucho texto, muchos comandos de GPU.
+Pendiente de plantilla. `C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK)` bloquea indefinidamente al cerrar desde HOME (prueba 37). Hay que investigar si liberar recursos GPU antes de llamar a `C3D_FrameBegin` evita el bloqueo, o si el problema está en el estado interno de citro3d tras el APT suspend/restore. Después de resolver el cierre, el menú.
 
 ## Registro de pruebas
 
@@ -79,8 +60,8 @@ Pendiente de plantilla, después de la 37. Lo que tiene que comparar, menú fren
 | 34 | Cierre desde HOME y valores del menú | Llega la orden de cerrar (`[EXIT]`) y se atasca después; guardar partida funciona; valores de escala del menú normales |
 | 35 | ¿Dónde se para el cierre desde HOME? | ✅ Entre `TryRunTics done` y `D_Display done`: `I_StartTic()`, `D_ProcessEvents()` o `D_Display()`. Hipótesis C descartada (el bucle llega a la iteración). |
 | 36 | ¿Cuál de las 3 funciones se cuelga? | ✅ `D_Display()` es la culpable. `Before D_Display` presente, `D_Display done` ausente. I_StartTic y D_ProcessEvents completan sin problemas. |
-| 37 | ¿Qué paso de `D_Display()` se para al cerrar desde HOME? | En preparación (ver abajo) |
-| 38 | Menú grande y repetido | Siguiente, tras la 37 |
+| 37 | ¿Qué paso de `D_Display()` se para al cerrar desde HOME? | ✅ `C3D_FrameBegin` bloquea indefinidamente (f2016, con NONBLOCK). Hipótesis S confirmada, A1/B/C descartadas. |
+| 38 | ¿Por qué `C3D_FrameBegin` no vuelve? | Siguiente |
 
 
 ## Pendientes que no son la pregunta abierta
