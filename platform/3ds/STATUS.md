@@ -26,9 +26,55 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 
 **¿Por qué `C3D_FrameBegin` no vuelve al cerrar desde HOME?** (prueba 38). Después, el menú.
 
-## Prueba 38 (siguiente: ¿por qué `C3D_FrameBegin` no vuelve?)
+## Prueba 38 (cierre desde HOME: ¿sin SYNCDRAW vuelve?)
 
-Pendiente de plantilla. `C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK)` bloquea indefinidamente al cerrar desde HOME (prueba 37). Hay que investigar si liberar recursos GPU antes de llamar a `C3D_FrameBegin` evita el bloqueo, o si el problema está en el estado interno de citro3d tras el APT suspend/restore. Después de resolver el cierre, el menú.
+**Lo que se pidió:**
+- [x] Prueba 38 = cierre desde HOME (menú pasa a 39)
+- [x] Pregunta: tras la orden de cerrar, ¿el juego sale bien si no espera las vblank?
+- [x] Hipótesis: dejan de llegar vblank y `C3D_FrameSync` espera para siempre
+- [x] Pasada A: sin SYNCDRAW cuando `gameloop_abort` activo
+- [x] Pasada B: con archivo de control, no llamar a `D_Display()`
+- [x] Una sola compilación
+- [x] Plantilla como mucho 60 líneas, pasar por @revisora
+
+**Pregunta:** ¿Tras la orden de cerrar, el juego vuelve al menú HOME si `C3D_FrameBegin` no espera las vblank?
+
+**Lo que ya sabemos:**
+- Punto 11: `C3D_FrameBegin(SYNCDRAW|NONBLOCK)` bloquea en f2016 (prueba 37). Marca `FB_before` sí, `FB_after` no.
+- F2: con `SYNCDRAW`, `C3D_FrameSync()` buclea `gspWaitForAnyEvent()` hasta que avanzan los contadores vblank de las dos pantallas (`citro3d/source/renderqueue.c:75-84`). `NONBLOCK` no evita esta espera.
+- Punto 8: tras volver de HOME el juego dibuja con normalidad 60 s.
+
+**Hipótesis A (vblank dejan de llegar):** tras `gameloop_abort`, las vblank ya no llegan a la app. Sin `SYNCDRAW`, `C3D_FrameBegin` salta `C3D_FrameSync()` y vuelve.
+- Si A es cierta (pasada A): sale `FB_after`, el juego termina y la consola vuelve al menú HOME.
+**Hipótesis B (no es vblank):** el bloqueo no está en `C3D_FrameSync`. Sin `SYNCDRAW` igual se queda.
+- Si B es cierta (pasada A): no sale `FB_after`, la consola se cuelga igual.
+**Hipótesis C (necesita limpieza GPU):** incluso sin esperar vblank, el frame anterior no cerró y `C3D_FrameBegin` devuelve `false` (F1), pero el juego puede continuar sin frame activo.
+- Si C es cierta (pasada A): sale `FB_after` pero `FB_fail`; la consola puede volver o colgarse después.
+
+**Pasada A (sin archivo de control):** `ScreenBegin()` llama a `C3D_FrameBegin(C3D_FRAME_NONBLOCK)` sin `SYNCDRAW` cuando `gameloop_abort` está activo.
+**Pasada B (archivo `ctrl38.txt` en sdmc:/3ds/gzdoom/):** con `gameloop_abort` activo, saltar `D_Display()` entero.
+
+| Pasada | Archivos de control | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | ¿Vuelve al menú HOME o se cuelga? |
+| B | `ctrl38.txt` | ¿Vuelve al menú HOME? (si salta D_Display debería volver) |
+
+**Única variable que cambia:** la pasada A ya cambia `C3D_FrameBegin` sin `SYNCDRAW` respecto a la base (prueba 37). Entre A y B, la variable es si `D_Display()` se llama o se salta: en B se salta entero, así que ni `ScreenBegin()` ni `C3D_FrameBegin` se ejecutan. A vs B aísla si el problema está dentro de `D_Display()` más allá de `C3D_FrameBegin`.
+
+**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp`.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 38`
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** No hay shader. A vs B: cambia solo si `D_Display()` se llama. Dentro de A (vs base 37): cambia `C3D_FrameBegin` sin `SYNCDRAW`. Una variable por comparación.
+2. **¿Cada hipótesis predice algo distinto en el log?** Hipótesis A: sale `FB_after`. Hipótesis B: no sale `FB_after`. Hipótesis C: sale `FB_after` + `FB_fail`. Resultados distintos.
+3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es si Alex vuelve al menú HOME o la consola se cuelga.
+4. **¿Se resuelve en una sola compilación?** Sí: `ctrl38.txt` como interruptor.
+5. **¿Cada afirmación sobre una API tiene su fuente?** F2: `citro3d/source/renderqueue.c:75-84` y `:163-177`. F1: `hechos-3ds.md:13`.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si A y B dan igual, el problema no está en `D_Display()` sino más allá (`quickexit`, `M_Quit`). Si A se cuelga pero B vuelve, el problema está dentro de `D_Display()`.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** `ctrl38.txt` vacío, nombre único.
+8. **¿Lo que vas a añadir ya existe?** `ctrl38` no existe en el código. Se modifica `ScreenBegin()` y `d_main.cpp` bajo `#ifdef __3DS__`.
+9. **¿Qué se ejecuta después de tu cambio?** Tras `C3D_FrameBegin` sin `SYNCDRAW`: si `true`, `Update()` → `EndFrame()` → `C3D_FrameEnd`. Si `false`, `mFrameBlocked=true`, `Update()` camino bloqueado. En ambos sale `FB_after`. Después: `quickexit` → `M_Quit`. El log sigue abierto hasta `N3DS_LogClose()`.
 
 ## Registro de pruebas
 
