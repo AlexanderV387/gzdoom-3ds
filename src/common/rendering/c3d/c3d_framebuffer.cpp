@@ -164,7 +164,8 @@ void C3DFrameBuffer::ScreenBegin()
 		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
-	bool ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+	u32 fbFlags = gameloop_abort ? C3D_FRAME_NONBLOCK : (C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+	bool ok = C3D_FrameBegin(fbFlags);
 	if (gameloop_abort)
 	{
 		char buf[128];
@@ -195,7 +196,7 @@ void C3DFrameBuffer::ScreenBegin()
 			N3DS_LogFlush();
 		}
 		retries++;
-		ok = C3D_FrameBegin(C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+		ok = C3D_FrameBegin(fbFlags);
 	}
 	Diag::FrameBegun(ok, retries);
 	if (!ok)
