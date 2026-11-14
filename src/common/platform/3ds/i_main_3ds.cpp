@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cstdlib>
 
 #include "cmdlib.h"
 #include "engineerrors.h"
@@ -53,6 +54,17 @@ static FILE *LogFile;
 static u64 g_StartTick;
 static aptHookCookie g_AptHookCookie;
 
+static void N3DS_AtexitCallback()
+{
+	if (FILE *f = fopen(N3DS_DATA_DIR "/log.txt", "a"))
+	{
+		fputs("[EXIT] atexit callback\n", f);
+		fflush(f);
+		fsync(fileno(f));
+		fclose(f);
+	}
+}
+
 static void N3DS_AptHookCallback(APT_HookType hookType, void *param)
 {
 	switch (hookType)
@@ -66,8 +78,14 @@ static void N3DS_AptHookCallback(APT_HookType hookType, void *param)
 			N3DS_LogFlush();
 			break;
 		case APTHOOK_ONEXIT:
-			N3DS_Log("[APT] exit\n");
-			N3DS_LogFlush();
+			// Log may already be closed by main(); reopen in append mode
+			if (FILE *f = fopen(N3DS_DATA_DIR "/log.txt", "a"))
+			{
+				fputs("[APT] exit\n", f);
+				fflush(f);
+				fsync(fileno(f));
+				fclose(f);
+			}
 			break;
 		default:
 			break;
@@ -195,6 +213,7 @@ static void AddGameArguments()
 
 int main(int argc, char **argv)
 {
+	atexit(N3DS_AtexitCallback);
 	osSetSpeedupEnable(true);	// New 3DS: 804 MHz and the L2 cache
 	romfsInit();
 	mkdir("sdmc:/3ds", 0777);
@@ -239,11 +258,20 @@ int main(int argc, char **argv)
 
 	N3DS_Log("[EXIT] after GameMain"); N3DS_LogFlush();
 	fprintf(LogFile, "T+%lld ms: GameMain exit %d\n", N3DS_ElapsedMs(), result);
+	N3DS_LogFlush();
+
+	SDL_Quit();
+	N3DS_Log("[EXIT] after SDL_Quit"); N3DS_LogFlush();
+
+	gfxExit();
+	N3DS_Log("[EXIT] after gfxExit"); N3DS_LogFlush();
+
+	romfsExit();
+	N3DS_Log("[EXIT] after romfsExit"); N3DS_LogFlush();
+
 	if (LogFile) fclose(LogFile);
 	LogFile = nullptr;
-	N3DS_Log("[EXIT] log closed, before gfxExit"); N3DS_LogFlush();
-	SDL_Quit();
-	gfxExit();
-	romfsExit();
+
+	N3DS_Log("[EXIT] log closed, before return"); N3DS_LogFlush();
 	return result;
 }

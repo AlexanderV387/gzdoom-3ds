@@ -1649,18 +1649,7 @@ void D_DoomLoop ()
 #ifdef __3DS__
 			if (gameloop_abort)
 			{
-				// c3d-exit-nodisplay.txt: skip D_Display() entirely during exit
-				char ctrlPath[128];
-				struct stat st;
-				snprintf(ctrlPath, sizeof(ctrlPath), N3DS_DATA_DIR "/c3d-exit-nodisplay.txt");
-				if (stat(ctrlPath, &st) == 0)
-				{
-					N3DS_Log("[EXIT] skip D_Display (control file)"); N3DS_LogFlush();
-				}
-				else
-				{
-					D_Display ();
-				}
+				N3DS_Log("[EXIT] skip D_Display (always)"); N3DS_LogFlush();
 			}
 			else
 #endif
