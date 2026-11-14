@@ -599,3 +599,36 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 | Demostrado | Probable | Sin datos |
 |---|---|---|
 | Quitar `romfsExit()` de `main()` evita el crash post-main. Cierre completo: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `atexit` y vuelta al HOME Menu sin crash. `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib aún tenía FILE* abiertos a archivos .pk3 de romfs:, causando `_lseek_r` con FAR=0x18 (puntero nulo + offset de `seek_r`). | Sin datos suficientes para concluir. | Tiempo exacto desde `gameloop_abort set` hasta la última marca (sin timestamp intermedio); si el cierre lento es del juego o del sistema APT; si el cierre lento (~28 s) incluye el tiempo de suspend de APT y la transición al HOME Menu; por qué la música del HOME se corta (sin logs del sistema, sin línea del log que muestre liberación de recursos de audio) |
+
+## Prueba 90 (hecha, 1 pasada, log analizado)
+
+**Pregunta:** ¿`romfsInit()` falla en Azahar? ¿Se monta la RomFS y se encuentra `uzdoom.pk3`?
+
+**Lo que se midió:** `romfsInit()` result, `envIsHomebrew()`, `argv[0]`, y si `romfs:/data/uzdoom.pk3` existe.
+
+**Única variable que cambia:** marcadores `[ROMFS]` en `i_main_3ds.cpp` (después de `romfsInit()` y antes de `GameMain()`).
+
+**Log:** `~/work/3ds-ports/pruebas/90/log-azahar.txt`
+
+**Resultado en pantalla:** Azahar mostró el título de UZDoom y cerró a los ~6 s con "Cannot find a game IWAD".
+
+**Marcas del log:**
+- `[ROMFS] init=OK homebrew=0 argv[0]=(null)`
+- `[ROMFS] pk3: YES`
+- `Engine data: romfs:/data/`
+- `FATAL: Cannot find a game IWAD (doom.wad, heretic.wad, etc)!`
+- `[mem] fatal: app 98304 KB, heap 72092 KB (in use 13226 KB)`
+
+**Tabla de hipótesis:**
+
+| Hipótesis | Resultado |
+|---|---|
+| **A (romfsInit falla en Azahar):** `envIsHomebrew()` es false → `romfsMountSelf` usa `romfsMountFromCurrentProcess` → falla sin RomFS de proceso. Log esperado: `[ROMFS] init=FAIL`. | ❌ **DESCARTADA** |
+| **B (romfsInit ok pero pk3 ausente):** `romfsInit()` devuelve 0 pero `stat("romfs:/data/uzdoom.pk3")` falla. Log esperado: `init=OK, pk3: NO`. | ❌ **DESCARTADA** |
+| **C (romfsInit ok y pk3 presente, el problema es otro):** `romfsInit()` devuelve 0 y `stat()` funciona. Log esperado: `init=OK, pk3: YES`. | ✅ **CONFIRMADA** |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| `romfsInit()` funciona en Azahar: devuelve OK. `envIsHomebrew()` es 0 (sin Homebrew Launcher). `argv[0]` es NULL. `romfs:/data/uzdoom.pk3` existe y es accesible. El RomFS no es la causa de "Cannot find a game IWAD". | El problema de IWAD en Azahar es que `doom2.wad` no está en la ruta que el motor busca (`sdmc:/3ds/gzdoom/`). | Si Azahar puede cargar IWAD desde otras rutas; si copiar `doom2.wad` a la sdmc virtual de Azahar resuelve el problema. |

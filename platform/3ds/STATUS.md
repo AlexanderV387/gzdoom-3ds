@@ -65,45 +65,16 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 40 | ¿Dónde se para post-`D_Cleanup()`? | ✅ `C3D_RenderTargetDelete(mTop)` bloquea. `mFrameStarted` false → saltó `C3D_FrameEnd`. GPU con trabajo pendiente. `C3D_Fini()` descartada como causa. |
 | 41 | ¿Saltar `D_Display()` siempre con `gameloop_abort` arregla el cierre y dónde está el crash post-main? | ✅ Cierre completo: todas las marcas `[EXIT]` presentes hasta `atexit callback`. Crash ARM11 post-main en `_lseek_r`←`__libc_lock_release` (Newlib), FAR=0x18, Translation fault. Hipótesis A confirmada, B descartada. |
 | 42 | ¿Quitar `romfsExit()` de `main()` evita el crash post-main? | ✅ Sí. Cierre completo, vuelta al HOME Menu sin crash. Todas las marcas `[EXIT]` presentes hasta `atexit callback`. `GameMain exit 0`. Hipótesis A confirmada, B descartada. Causa: `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib tenía FILE* abiertos a archivos .pk3 de romfs:. |
+| 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. El fallo "Cannot find a game IWAD" es por falta de `doom2.wad` en la ruta del motor, no por RomFS. |
 
 
-## Prueba 90
+## Pendiente
 
-**Lo que se pidió:** registrar en el log `romfsInit()`, `envIsHomebrew()`, `argv[0]` y si existe `romfs:/data/uzdoom.pk3`. [x]
-
-**Pregunta:** ¿`romfsInit()` falla en Azahar?
-
-**Lo que ya sabemos (con la prueba que lo mostró):** el motor arranca y llega a `Init complete` (p. 1). En Azahar cierra a los 6 s con "Cannot find a game IWAD" aunque `doom2.wad` está en la SD (Pendientes).
-
-**Hipótesis A (romfsInit falla):** `envIsHomebrew()` devuelve `false` en Azahar (`__service_ptr` es NULL, `env.h:20`); `romfsMountSelf` toma el camino de `romfsMountFromCurrentProcess` (`romfs_dev.c:237-238`) que abre `ARCHIVE_ROMFS` del proceso (`romfs_dev.c:305`) y falla porque no hay RomFS de proceso instalada. Log: `[ROMFS] init=FAIL`, `homebrew=0`, `argv[0]=...`, `pk3: NO`.
-**Hipótesis B (romfsInit ok pero RomFS sin data/uzdoom.pk3):** `romfsInit()` devuelve 0 (montaje correcto) pero el archivo no está. Log: `[ROMFS] init=OK`, `homebrew=...`, `argv[0]=...`, `pk3: NO`.
-**Hipótesis C (romfsInit ok y pk3 presente, el problema es otro):** `romfsInit()` devuelve 0 y `stat("romfs:/data/uzdoom.pk3")` funciona. Log: `[ROMFS] init=OK`, `homebrew=...`, `argv[0]=...`, `pk3: YES`.
-
-**Única variable que cambia:** marcadores de diagnóstico en `i_main_3ds.cpp:main()` (después de la línea 218 y antes de la 248).
-
-**Pasadas en Azahar:**
-| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en el log |
-|---|---|---|
-| A | ninguno | `[ROMFS] init=...`, `homebrew=...`, `argv[0]=...`, `pk3: ...` |
-
-**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 90`. Probar con `~/work/catequilla/tools/prueba-azahar.sh 90`.
-
-**Autocomprobación:**
-1. **Tabla de diferencias:** no hay shader ni cambio funcional; solo se añaden líneas `[ROMFS]` al log. Las tres hipótesis se distinguen por el valor de `romfsInit()` y el resultado de `stat()`.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A → `[ROMFS] init=FAIL`; B → `init=OK, pk3: NO`; C → `init=OK, pk3: YES`.
-3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica, el criterio es el log.
-4. **¿Se resuelve en una sola compilación?** Sí, una pasada en Azahar distingue las tres hipótesis.
-5. **¿Cada afirmación sobre una API tiene su fuente?** `envIsHomebrew()` devuelve `__service_ptr != NULL` (`env.h:20`); si es false, `romfsMountSelf` llama a `romfsMountFromCurrentProcess` que abre `ARCHIVE_ROMFS` del proceso (`romfs_dev.c:237,305`); `romfsInit()` es wrapper de `romfsMountSelf("romfs")` (`romfs.h:84-87`).
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Solo hay una pasada; si el log no muestra `[ROMFS]`, el fallo es antes de `romfsInit()` (p. ej. `LogFile` no se abre).
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí, una pasada sin archivos de control.
-8. **¿Lo que vas a añadir ya existe?** `grep -rn "\[ROMFS\]" src/` — no existe, es nuevo.
-9. **¿Qué se ejecuta después de tu cambio?** Después de los marcadores `[ROMFS]` se ejecuta `stat("romfs:/data/" BASEWAD)` (`i_main_3ds.cpp:248`), luego `GameMain()` y la carga normal. El log sigue abierto (`LogFile` se cierra al final de `main()`).
+Sin pruebas activas.
 
 ## Pendientes que no son la pregunta abierta
 
-- **Azahar:** la prueba 36 se cierra a los 6 s con "Cannot find a game IWAD", aunque `doom2.wad` está en la SD del emulador. Hipótesis: no se monta la RomFS del `.3dsx` (`romfsInit()` no se comprueba, `i_main_3ds.cpp:199`).
+- **Azahar:** la prueba 36 se cierra a los 6 s con "Cannot find a game IWAD", aunque `doom2.wad` está en la SD del emulador. RomFS funciona correctamente en Azahar (prueba 90: `romfsInit()` OK, `uzdoom.pk3` presente). El problema está en la búsqueda de IWAD: Azahar no tiene `doom2.wad` en la ruta que el motor consulta.
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
 - **Cierre lento:** medir con los T+ms del log cuánto tarda desde `gameloop_abort set` hasta la última marca (prueba 42: T+102341 a T+130166 = ~28 s, pero incluye tiempo hasta el suspend).
 - **Música del HOME:** se corta al cerrar el juego y tarda en volver (pruebas 41-42).
