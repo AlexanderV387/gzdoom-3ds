@@ -483,3 +483,77 @@ El target `mTop` SÍ está enlazado (`C3D_RenderTargetSetOutput` en l.447), por 
 |---|---|---|
 | El bloqueo está en `C3D_RenderTargetDelete(mTop)` (c3d_framebuffer.cpp:122). `mFrameStarted` era false, así que `C3D_FrameEnd()` no se llamó. `C3D_RenderTargetDelete` espera a la cola GPU indefinidamente cuando el target está enlazado y `!inFrame` (citro3d `renderqueue.c:381`) | La GPU tiene trabajo pendiente del último frame que no se cerró con `C3D_FrameEnd()` porque `mFrameStarted` era false. La prueba 38B (saltando `D_Display()`) cerraba limpio porque no había trabajo pendiente | Por qué `mFrameStarted` era false al cerrar; si llamar a `C3D_FrameEnd(0)` antes de shutdown resuelve el problema |
 
+## Prueba 41 (arreglo: sin dibujar al cerrar + marcas post-main)
+
+**Lo que se pidió:**
+- [x] Prueba 41 = arreglo, no más marcas
+- [x] Sin dibujar tras `gameloop_abort`, sin archivo de control
+- [x] Diagnóstico del crash post-main (38B): marcas en cada paso de `main()` tras `GameMain()`
+- [x] Hook `APTHOOK_ONEXIT` que abre el log en modo añadir
+- [x] Mover `fclose(LogFile)` al final de `main()` para que las marcas post-GameMain funcionen
+- [x] Una sola pasada
+
+**Pregunta:** ¿Saltar `D_Display()` siempre con `gameloop_abort` hace que el cierre desde HOME complete sin bloquear, y dónde está el crash post-main?
+
+**Lo que ya sabemos:**
+- Punto 12 (38B): saltando `D_Display()` el cierre llega a `GameMain exit 0` pero crash post-main (PC=0, LR=2).
+- Punto 14 (40): `C3D_RenderTargetDelete` bloquea porque la GPU tenía trabajo pendiente. Sin `D_Display()` no hay trabajo pendiente.
+- Punto 11 (37): tras HOME no llegan vblank, `C3D_FrameBegin` con SYNCDRAW bloquea.
+- S8 (`hechos-3ds.md`): `APTHOOK_ONEXIT` se llama en `aptExit()`, después de `main()`, y el log ya está cerrado.
+- `i_main_3ds.cpp:242` cierra el log antes de `gfxExit()` y `romfsExit()`. Se mueve al final.
+
+**Hipótesis A (el cierre completa, crash en post-main):**
+- `fclose` se mueve al final de `main()`, así que las marcas post-GameMain se pueden escribir. El log muestra `[EXIT] after GameMain`, `[EXIT] after SDL_Quit`, `[EXIT] after gfxExit`, `[EXIT] after romfsExit`.
+- Si crasha en `SDL_Quit`: última marca `[EXIT] after GameMain`.
+- Si crasha en `gfxExit`: última marca `[EXIT] after SDL_Quit`.
+- Si crasha en `romfsExit`: última marca `[EXIT] after gfxExit`.
+- Si crasha en `APTHOOK_ONEXIT`: el hook abre el log en modo añadir (`N3DS_DATA_DIR "/log.txt"`, `"a"`), escribe `[APT] exit`, cierra. Crash después.
+
+**Hipótesis B (el cierre no completa, cuelgue en destructores):**
+- Última marca `[EXIT] after GameMain` o antes. Cuelgue en destructor global o `atexit` dentro de `GameMain()` (antes de llegar a `main()` post-return).
+
+**Única variable que cambia:** (1) bloque `if (gameloop_abort)` en d_main.cpp:1650-1669 reemplazado por salto incondicional de `D_Display()`, (2) marcas en `main()` post-`GameMain()`, (3) `fclose(LogFile)` movido tras `romfsExit()`, (4) hook `ONEXIT` con `fopen` en modo añadir.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| Única | ninguno | Log completo; juego cierra o crasha |
+
+**Marcadores que se quedan:** los `[EXIT]` de `D_Cleanup()` y post-`D_Cleanup()` (pruebas 39-40). Los `[EXIT] FB ~` del destructor.
+**Marcadores que se quitan:** el bloque entero `if (gameloop_abort) { stat(c3d-exit-nodisplay.txt) ... }` (d_main.cpp:1650-1669).
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 41`
+
+**Resultado:** El log (87 líneas) muestra:
+- Todas las marcas `[EXIT]` de `D_Cleanup()` y post-`D_Cleanup()` presentes ✅
+- `[EXIT] after GameMain` + `T+124659 ms: GameMain exit 0` ✅
+- `[EXIT] after SDL_Quit`, `[EXIT] after gfxExit`, `[EXIT] after romfsExit`, `[EXIT] atexit callback` ✅
+- `[APT] exit` (hook ONEXIT) ❌ ausente — el crash es antes del hook
+- Tiempo entre `gameloop_abort set` y última marca con timestamp (`T+124659`): ~24 s (desde T+100769 MAP01 hasta T+124659), pero la secuencia de cierre en sí es instantánea (todas las `[EXIT]` en línea 86 sin marcas intermedias)
+
+**Audio:** `S_Init` (T+18232) y `S_InitData` (T+31652) presentes. Sin marcas de NDSP/DSP o SDL audio init explícitas. FluidSynth falló (T+96079), fallback a ADL. El audio del juego no se inició de forma verificable en el log.
+
+**Dump ARM11 (lee-dump.sh):**
+| Registro | Valor | Símbolo |
+|---|---|---|
+| PC | 0x00bc7e18 | `_lseek_r` (Newlib) |
+| LR | 0x00bc8d74 | `__libc_lock_release` (Newlib) |
+| FAR | 0x00000018 | lectura fallida (dirección casi nula) |
+| DFSR | 0x00000005 | Translation fault - Section |
+| Proceso | 3dsx_app | ARM11 core 0 |
+
+Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La dirección de fallo 0x18 sugiere un puntero nulo + desplazamiento en estructura de descriptor de fichero. El crash es **post-main**, tras `[EXIT] atexit callback`.
+
+**Tabla de hipótesis:**
+
+| Hipótesis | Resultado |
+|---|---|
+| **A (cierre completa, crash post-main):** todas las `[EXIT]` presentes + dump | ✅ **CONFIRMADA** |
+| **B (cierre no completa, cuelgue):** última marca antes de post-main | ❌ **DESCARTADA** |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Saltar `D_Display()` con `gameloop_abort` permite que el cierre complete: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `romfsExit` y `atexit` ejecutan sin fallar. Crash en ARM11 post-main en `_lseek_r`←`__libc_lock_release` (Newlib), FAR=0x18, Translation fault. | `_lseek_r` se invoca desde código de limpieza del runtime (descriptor de fichero corrupto o liberado prematuramente) durante la transición APT post-main. El cortafuegos del audio del HOME es el sistema reintentando NDSP tras el suspend. | Por qué Newlib intenta `_lseek_r` con un puntero inválido post-main; si el hook `APTHOOK_ONEXIT` se llega a ejecutar (no apareció `[APT] exit` en el log) |
+
