@@ -20,55 +20,48 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 9. **Menú:** sale grande y repetido arriba y abajo. El HUD, la consola `~` y la pantalla de título se ven bien (Alex, en persona, 13 nov.). Los valores de escala del motor son normales (34).
 10. **OPTIONS cierra el juego:** `svcBreak` desde `GPUCMD_AddInternal` (resuelto con `addr2line` sobre la 36): el búfer de comandos de la GPU se llena (`hechos-3ds.md` F8).
 11. **`C3D_FrameBegin` bloquea al cerrar desde HOME.** Con `C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK` se queda indefinidamente en el fotograma 2016. La marca `FB_before` aparece pero no `FB_after` (prueba 37).
-12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). Pero `D_Cleanup()` se rompe: en la pasada A la última marca es `D_Cleanup start`; en la B (saltando `D_Display()`) llega a `GameMain exit 0` pero hay crash post-main (dump PC=0, LR=2, ARM9/ARM11 sin datos) (prueba 38).
+12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). `D_Cleanup()` completa todas sus funciones sin fallar (prueba 39). En la pasada 38B (saltando `D_Display()`) llega a `GameMain exit 0` pero hay crash post-main (dump PC=0, LR=2) (prueba 38).
 13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
 
 ## Pregunta abierta
 
-**¿Qué función dentro de `D_Cleanup()` falla al cerrar desde HOME?** (prueba 39). Después, el crash post-main y el menú.
+**¿Qué función después de `D_Cleanup()` falla al cerrar desde HOME?** (prueba 40). También pendiente: el crash post-main y el menú.
 
-## Prueba 39 (¿dónde se para dentro de `D_Cleanup()`?)
+## Prueba 40 (¿dónde se para tras `D_Cleanup()` en `GameMain`?)
 
-**Lo que se pidió:**
-- [x] Prueba 39 = dentro de `D_Cleanup()` (sin marcas aún)
-- [x] Pregunta: ¿qué función de `D_Cleanup()` no vuelve?
-- [x] Marca por cada llamada, no por grupos
-- [x] Nombre de la función en la marca
-- [x] Plantilla escrita
-
-**Pregunta:** ¿Qué función dentro de `D_Cleanup()` se queda sin volver al cerrar desde HOME?
+**Pregunta:** ¿Qué llamada post-`D_Cleanup()` en `GameMain()` no vuelve al cerrar desde HOME?
 
 **Lo que ya sabemos:**
-- Punto 12: Log A (prueba 38) última marca `D_Cleanup start`; Log B llega a `GameMain exit 0` pero crash post-main.
-- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~30 funciones. La que toca GPU: `TexMan.DeleteAll()` (l.4585).
+- Punto 12 y prueba 39: `D_Cleanup()` completa las 35 funciones sin fallar. El fallo está después.
+- `GameMain()` (d_main.cpp:4458-4533) llama a ~10 funciones tras `D_Cleanup()`. La más sospechosa: `I_ShutdownGraphics()` (l.4518, apaga la GPU).
 
-**Hipótesis:** `D_Cleanup()` se para en una función concreta. Con una marca `[EXIT]` después de cada llamada, la marca ausente dice cuál.
+**Hipótesis:** Una función post-`D_Cleanup()` en `GameMain()` se queda sin volver. Con marcas `[EXIT] GM after <función>` tras cada llamada, la ausente dice cuál.
 
-**Marcas (una por llamada, en orden):**
-`[EXIT] DC after S_ClearSoundData`, `[EXIT] DC after S_UnloadReverbDef`, `[EXIT] DC after G_ClearMapinfo`, `[EXIT] DC after M_ClearMenus`, `[EXIT] DC after AM_ClearColorsets`, `[EXIT] DC after DeinitSWColorMaps`, `[EXIT] DC after FreeSBarInfoScript`, `[EXIT] DC after DeleteScreenJob`, `[EXIT] DC after D_ErrorCleanup`, `[EXIT] DC after P_Shutdown`, `[EXIT] DC after M_SaveDefaults`, `[EXIT] DC after CleanSWDrawer`, `[EXIT] DC after V_ClearFonts`, `[EXIT] DC after ColorSets.Clear`, `[EXIT] DC after PainFlashes.Clear`, `[EXIT] DC after gameinfo reset`, `[EXIT] DC after S_Shutdown`, `[EXIT] DC after C_ClearAliases`, `[EXIT] DC after DestroyCVarsFlagged`, `[EXIT] DC after DeinitMenus`, `[EXIT] DC after ClearSaveGames`, `[EXIT] DC after LightDefaults`, `[EXIT] DC after TexAnim.DeleteAll`, `[EXIT] DC after TexMan.DeleteAll`, `[EXIT] DC after GC.FullGC.1`, `[EXIT] DC after AutoSegs.ForEach`, `[EXIT] DC after GC.DelSoftRootHead`, `[EXIT] DC after PClassActor.Clear`, `[EXIT] DC after ScriptUtil.Clear`, `[EXIT] DC after PClass.StaticShutdown`, `[EXIT] DC after GC.FullGC.2`, `[EXIT] DC after assert`, `[EXIT] DC after restart++`, `[EXIT] DC end`
+**Marcas (una por llamada, en orden, tras `D_Cleanup()` ya marcada):**
+`[EXIT] GM after CloseNetwork`, `[EXIT] GM after GC.FinalGC`, `[EXIT] GM after C_DeinitConsole`, `[EXIT] GM after R_DeinitColormaps`, `[EXIT] GM after R_Shutdown`, `[EXIT] GM after I_ShutdownGraphics`, `[EXIT] GM after I_ShutdownInput`, `[EXIT] GM after M_SaveDefaultsFinal`, `[EXIT] GM after DeleteStartupScreen`, `[EXIT] GM after C_UninitCVars`, `[EXIT] GM after CloseWidgetResources`, `[EXIT] GM after delete Args`
 
-**Pasada única** (sin archivo control, sin SYNCDRAW como la 38A): la compilación ya trae sin SYNCDRAW y las marcas nuevas.
+**Pasada única:** sin archivo de control.
 
 | Pasada | Archivos de control | Qué mirar en pantalla |
 |---|---|---|
-| Única | ninguno | ¿Vuelve al menú HOME o se cuelga? |
+| Única | ninguno | Log hasta última `[EXIT] GM after` |
 
-**Única variable:** las marcas `[EXIT]` dentro de `D_Cleanup()` (solo lectura, sin cambiar lógica).
+**Única variable:** las marcas `[EXIT] GM after` en `GameMain()` post-`D_Cleanup()` (solo lectura).
 
-**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las ~33 nuevas en `D_Cleanup()`.
+**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 35 de `D_Cleanup()` + las ~12 nuevas post-`D_Cleanup()`.
 
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 39`
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 40`
 
-**Autocomprobación** (las 9 preguntas de `plantilla-prueba.md`, copiadas tal cual):
-1. **Tabla de diferencias.** Una sola pasada. Cambios vs base: +~33 marcas `[EXIT]` en `D_Cleanup()`. Sin cambiar lógica, ni shaders, ni comportamiento.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: cada marca ausente apunta a una función concreta.
-3. **¿Lo que dices que se verá en pantalla puede verse?** No aplica: el criterio es el log.
-4. **¿Se resuelve en una sola compilación?** Sí, sin interruptores. Con marca por función, una sola pasada basta.
-5. **¿Cada afirmación sobre una API tiene su fuente?** Solo `N3DS_Log`, ya usada y verificada (S10 de `hechos-3ds.md`).
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si las ~33 marcas salen, el problema está fuera de `D_Cleanup()` (en `CloseNetwork()`, `GC` de `GameMain`, `R_Shutdown()`, `I_ShutdownGraphics()`, etc.).
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sin archivos de control, solo copiar el `.3dsx`.
-8. **¿Lo que vas a añadir ya existe?** No, son marcas nuevas bajo `#ifdef __3DS__` en `d_main.cpp`.
-9. **¿Qué se ejecuta después de tu cambio?** `D_Cleanup()` con marcas tras cada llamada. Si marca N falta, la función N es la culpable. Después sigue `GameMain` con más limpieza.
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una pasada. +~12 marcas `[EXIT] GM after` en `GameMain()` tras `D_Cleanup()`. Sin cambiar lógica.
+2. **¿Cada hipótesis predice algo distinto?** Sí, cada marca ausente apunta a una función.
+3. **¿Se verá en pantalla?** Criterio es el log.
+4. **¿Una compilación?** Sí.
+5. **¿APIs con fuente?** Solo `N3DS_Log` (S10).
+6. **¿Si todas salen?** Si las 12 marcas aparecen, el problema es fuera de `GameMain()` (destructores globales, `atexit`, hook APT).
+7. **¿Alex lo prepara sin equivocarse?** Solo copiar `.3dsx`.
+8. **¿Existe?** No, marcas nuevas bajo `#ifdef __3DS__`.
+9. **¿Qué sigue?** Si marca N falta, la función N es la culpable. Si todas salen, investigar destructores globales.
 
 ## Registro de pruebas
 
@@ -102,6 +95,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 36 | ¿Cuál de las 3 funciones se cuelga? | ✅ `D_Display()` es la culpable. `Before D_Display` presente, `D_Display done` ausente. I_StartTic y D_ProcessEvents completan sin problemas. |
 | 37 | ¿Qué paso de `D_Display()` se para al cerrar desde HOME? | ✅ `C3D_FrameBegin` bloquea indefinidamente (f2016, con NONBLOCK). Hipótesis S confirmada, A1/B/C descartadas. |
 | 38 | ¿Por qué `C3D_FrameBegin` no vuelve? | ✅ Sin SYNCDRAW vuelve (`FB_after`). Pero `D_Cleanup` se rompe: A se para en `D_Cleanup start`, B (sin D_Display) llega a `GameMain exit 0` pero Luma crasha post-main |
+| 39 | ¿Dónde se para dentro de `D_Cleanup()`? | ✅ 35/35 marcas presentes. `D_Cleanup()` completa sin fallar. El problema está **después**, en el código post-`D_Cleanup()` de `GameMain` o en destructores globales |
 
 
 ## Pendientes que no son la pregunta abierta

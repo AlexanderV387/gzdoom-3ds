@@ -404,3 +404,36 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 |---|---|---|
 | Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). El problema del cierre no es solo `C3D_FrameBegin`: `D_Cleanup` se rompe cuando `D_Display()` se llamó en el último frame, y aunque se salte `D_Display()`, algo no se limpia bien y hay crash post-main en ARM11 | `D_Display()` en el último frame del cierre deja estado GPU o de citro3d que rompe `D_Cleanup()` (que llama a `R_Shutdown()`, `I_ShutdownGraphics()`, `TexMan.DeleteAll()`, etc.) | Qué función dentro de `D_Cleanup` falla exactamente; qué recurso no liberado causa el crash post-main de la pasada B |
 
+## Prueba 39 (¿dónde se para dentro de `D_Cleanup()`?)
+
+**Lo que se pidió:**
+- [x] Prueba 39 = dentro de `D_Cleanup()` (con marcas)
+- [x] Pregunta: ¿qué función de `D_Cleanup()` no vuelve?
+- [x] Marca por cada llamada, no por grupos
+- [x] Nombre de la función en la marca
+- [x] Plantilla escrita
+
+**Pregunta:** ¿Qué función dentro de `D_Cleanup()` se queda sin volver al cerrar desde HOME?
+
+**Lo que ya sabemos:**
+- Punto 12: Log A (prueba 38) última marca `D_Cleanup start`; Log B llega a `GameMain exit 0` pero crash post-main.
+- `D_Cleanup()` (d_main.cpp:4541-4619) llama a ~30 funciones.
+
+**Hipótesis:** `D_Cleanup()` se para en una función concreta. Con una marca `[EXIT]` después de cada llamada, la marca ausente dice cuál.
+
+**Marcas (una por llamada, en orden):** 35 marcas `[EXIT] DC after <función>` + `[EXIT] DC end`.
+
+**Resultado:** El log (91 líneas) contiene **las 35 marcas completas**, incluyendo `[EXIT] DC end`. `D_Cleanup()` termina todas sus funciones sin fallar.
+
+**Tabla de hipótesis:**
+
+| Hipótesis | Resultado |
+|---|---|
+| **A (una función de `D_Cleanup()` no vuelve):** marca ausente en el log | ❌ **DESCARTADA** (35/35 marcas presentes, incluyendo `DC end`) |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| `D_Cleanup()` completa todas sus funciones al cerrar desde HOME. El fallo está **después** de `D_Cleanup()`, en el código de `GameMain` que sigue: `CloseNetwork()`, `R_Shutdown()`, `I_ShutdownGraphics()`, destructores globales, o el camino de retorno a `main()` | El crash ocurre en la limpieza post-`D_Cleanup()` de `GameMain` (llamadas a `R_Shutdown()`, `I_ShutdownGraphics()`, `I_ShutdownInput()`, etc.) o en destructores globales tras `return 0` de `main()` | Qué función exacta post-`D_Cleanup()` falla; si es el mismo crash post-main ARM11 de la prueba 38B o un cuelgue diferente |
+
