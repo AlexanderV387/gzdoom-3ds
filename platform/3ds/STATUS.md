@@ -69,7 +69,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 4. **¿Se resuelve en una sola compilación?** Sí. Si A se confirma, la pregunta del crash post-main queda respondida. Si B se confirma, la siguiente prueba investiga otro devoptab.
 5. **¿Cada afirmación sobre una API tiene su fuente?** `devoptab_t` en `iosupport.h:36-76` (local). `romfsExit()` desregistra devoptab en `romfs_dev.c` (libctru). FAR=0x18 = offset de `seek_r` calculado: name(0x00) + structSize(0x04) + open_r(0x08) + close_r(0x0C) + write_r(0x10) + read_r(0x14) + seek_r(0x18).
 6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si da igual quitar `romfsExit()` o no, el problema no es el devoptab de romfs: pero sí es `_lseek_r` con FAR=0x18. Necesito averiguar qué otro descriptor apunta a devoptab nulo.
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Un archivo de control vacío, sin contenido. Solo copiar el `.3dsx`.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Ningún archivo de control. Solo copiar el `.3dsx`.
 8. **¿Lo que vas a añadir ya existe?** `romfsExit()` existe en `i_main_3ds.cpp:269`. No se añade nada nuevo, solo se comenta.
 9. **¿Qué se ejecuta después de tu cambio?** `GameMain()` → `SDL_Quit()` (l.263) → `gfxExit()` (l.266) → (sin `romfsExit()`) → `fclose(LogFile)` (l.272) → `return result` (l.276) → atexit → stdio cleanup. El log se cierra en l.272, así que marcas tras ese punto no aparecen. Si el devoptab de romfs: sigue vivo, Newlib cierra FILE* sin crash.
 

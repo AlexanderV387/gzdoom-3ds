@@ -266,8 +266,10 @@ int main(int argc, char **argv)
 	gfxExit();
 	N3DS_Log("[EXIT] after gfxExit"); N3DS_LogFlush();
 
+	#if 0
 	romfsExit();
 	N3DS_Log("[EXIT] after romfsExit"); N3DS_LogFlush();
+	#endif
 
 	if (LogFile) fclose(LogFile);
 	LogFile = nullptr;
