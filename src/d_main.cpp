@@ -1643,43 +1643,12 @@ void D_DoomLoop ()
 			I_SetFrameTime();
 
 			TryRunTics (); // will run at least one tic
-#ifdef __3DS__
-			if (gameloop_abort)
-			{
-				N3DS_Log("[EXIT] TryRunTics done"); N3DS_LogFlush();
-			}
-#endif
 			// Update display, next frame, with current state.
-#ifdef __3DS__
-			if (gameloop_abort)
-			{
-				N3DS_Log("[EXIT] Before I_StartTic"); N3DS_LogFlush();
-			}
-#endif
 			I_StartTic ();
-#ifdef __3DS__
-			if (gameloop_abort)
-			{
-				N3DS_Log("[EXIT] After I_StartTic"); N3DS_LogFlush();
-			}
-#endif
-#ifdef __3DS__
-			if (gameloop_abort)
-			{
-				N3DS_Log("[EXIT] Before D_ProcessEvents"); N3DS_LogFlush();
-			}
-#endif
 			D_ProcessEvents();
 #ifdef __3DS__
 			if (gameloop_abort)
 			{
-				N3DS_Log("[EXIT] After D_ProcessEvents"); N3DS_LogFlush();
-			}
-#endif
-#ifdef __3DS__
-			if (gameloop_abort)
-			{
-				N3DS_Log("[EXIT] Before D_Display"); N3DS_LogFlush();
 				// c3d-exit-nodisplay.txt: skip D_Display() entirely during exit
 				char ctrlPath[128];
 				struct stat st;
@@ -1691,7 +1660,6 @@ void D_DoomLoop ()
 				else
 				{
 					D_Display ();
-					N3DS_Log("[EXIT] D_Display done"); N3DS_LogFlush();
 				}
 			}
 			else
@@ -4509,13 +4477,31 @@ int GameMain()
 #endif
 	D_Cleanup();
 	CloseNetwork();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after CloseNetwork"); N3DS_LogFlush();
+#endif
 	GC::FinalGC = true;
 	GC::FullGC();
 	GC::DelSoftRootHead();	// the soft root head will not be collected by a GC so we have to do it explicitly
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after GC"); N3DS_LogFlush();
+#endif
 	C_DeinitConsole();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after C_DeinitConsole"); N3DS_LogFlush();
+#endif
 	R_DeinitColormaps();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after R_DeinitColormaps"); N3DS_LogFlush();
+#endif
 	R_Shutdown();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after R_Shutdown"); N3DS_LogFlush();
+#endif
 	I_ShutdownGraphics();
+#ifdef __3DS__
+	N3DS_Log("[EXIT] GM after I_ShutdownGraphics"); N3DS_LogFlush();
+#endif
 	I_ShutdownInput();
 	M_SaveDefaultsFinal();
 	DeleteStartupScreen();

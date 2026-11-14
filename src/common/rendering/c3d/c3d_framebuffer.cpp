@@ -106,8 +106,23 @@ C3DFrameBuffer::~C3DFrameBuffer()
 {
 	delete TheRenderState;
 	TheRenderState = nullptr;
-	if (mFrameStarted) C3D_FrameEnd(0);
+	if (mFrameStarted)
+	{
+#ifdef __3DS__
+		N3DS_Log("[EXIT] FB ~before C3D_FrameEnd"); N3DS_LogFlush();
+#endif
+		C3D_FrameEnd(0);
+#ifdef __3DS__
+		N3DS_Log("[EXIT] FB ~after C3D_FrameEnd"); N3DS_LogFlush();
+#endif
+	}
+#ifdef __3DS__
+	N3DS_Log("[EXIT] FB ~before C3D_RenderTargetDelete"); N3DS_LogFlush();
+#endif
 	C3D_RenderTargetDelete(mTop);
+#ifdef __3DS__
+	N3DS_Log("[EXIT] FB ~after C3D_RenderTargetDelete"); N3DS_LogFlush();
+#endif
 	shaderProgramFree(&ShaderProgram);
 	DVLB_Free(ShaderDVLB);
 	if (g_SimpletriDVLB != nullptr)
@@ -116,6 +131,9 @@ C3DFrameBuffer::~C3DFrameBuffer()
 		DVLB_Free(g_SimpletriDVLB);
 		g_SimpletriDVLB = nullptr;
 	}
+#ifdef __3DS__
+	N3DS_Log("[EXIT] FB ~before C3D_Fini"); N3DS_LogFlush();
+#endif
 	C3D_Fini();
 	TheFrameBuffer = nullptr;
 }
