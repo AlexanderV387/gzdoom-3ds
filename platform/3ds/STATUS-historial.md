@@ -402,7 +402,7 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 
 | Demostrado | Probable | Sin datos |
 |---|---|---|
-| Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). El problema del cierre no es solo `C3D_FrameBegin`: `D_Cleanup` se rompe cuando `D_Display()` se llamó en el último frame, y aunque se salte `D_Display()`, algo no se limpia bien y hay crash post-main en ARM11 | `D_Display()` en el último frame del cierre deja estado GPU o de citro3d que rompe `D_Cleanup()` (que llama a `R_Shutdown()`, `I_ShutdownGraphics()`, `TexMan.DeleteAll()`, etc.) | Qué función dentro de `D_Cleanup` falla exactamente; qué recurso no liberado causa el crash post-main de la pasada B |
+| Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve (`FB_after`). En la pasada A, entre `D_Cleanup start` y `GameMain returning` estaba todo `D_Cleanup()` + las ~12 llamadas post-`D_Cleanup()` de `GameMain`: alguna de esas no vuelve. En la B (saltando `D_Display`) llega a `GameMain exit 0` pero hay crash post-main en ARM11 | `D_Display()` en el último frame del cierre envía trabajo a la GPU que no termina, y al intentar limpiar la GPU (`I_ShutdownGraphics()` → `C3D_Fini()`) se queda esperando indefinidamente | Qué función exacta no vuelve en la pasada A; qué recurso no liberado causa el crash post-main de la pasada B |
 
 ## Prueba 39 (¿dónde se para dentro de `D_Cleanup()`?)
 

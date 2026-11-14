@@ -25,43 +25,54 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 
 ## Pregunta abierta
 
-**¿Qué función después de `D_Cleanup()` falla al cerrar desde HOME?** (prueba 40). También pendiente: el crash post-main y el menú.
+**¿Se para en `C3D_Fini()` al cerrar desde HOME?** (prueba 40). También pendiente: el crash post-main y el menú.
 
-## Prueba 40 (¿dónde se para tras `D_Cleanup()` en `GameMain`?)
+## Prueba 40 (¿se para en `C3D_Fini()` del destructor del framebuffer?)
 
-**Pregunta:** ¿Qué llamada post-`D_Cleanup()` en `GameMain()` no vuelve al cerrar desde HOME?
+**Lo que se pidió:**
+- [x] Prueba 40 = post-`D_Cleanup()` en `GameMain()` + destructor `~C3DFrameBuffer()`
+- [x] Hipótesis principal: `C3D_Fini()` no vuelve (F12)
+- [x] Marca antes y después de `C3D_FrameEnd`, `C3D_RenderTargetDelete`, `C3D_Fini`
+- [x] Plantilla escrita y revisada
+
+**Pregunta:** ¿El cierre desde HOME se queda en `C3D_Fini()` (F12: espera sin límite a la GPU)?
 
 **Lo que ya sabemos:**
-- Punto 12 y prueba 39: `D_Cleanup()` completa las 35 funciones sin fallar. El fallo está después.
-- `GameMain()` (d_main.cpp:4458-4533) llama a ~10 funciones tras `D_Cleanup()`. La más sospechosa: `I_ShutdownGraphics()` (l.4518, apaga la GPU).
+- Punto 12 y prueba 39: `D_Cleanup()` completa sin fallar. El fallo es post-`D_Cleanup()`.
+- F12 (nuevo): `C3D_Fini()` espera indefinidamente a la cola de la GPU. Si quedó trabajo que no termina, no vuelve.
+- `GameMain()` (d_main.cpp:4510-4532) llama a `I_ShutdownGraphics()` (l.4518) → destructor `~C3DFrameBuffer()` (c3d_framebuffer.cpp:105-121) → `C3D_FrameEnd()` → `C3D_RenderTargetDelete()` → `C3D_Fini()`.
 
-**Hipótesis:** Una función post-`D_Cleanup()` en `GameMain()` se queda sin volver. Con marcas `[EXIT] GM after <función>` tras cada llamada, la ausente dice cuál.
+**Hipótesis principal:** `C3D_Fini()` no vuelve porque la GPU tiene trabajo pendiente del último fotograma de `D_Display()` que no puede terminar.
 
-**Marcas (una por llamada, en orden, tras `D_Cleanup()` ya marcada):**
-`[EXIT] GM after CloseNetwork`, `[EXIT] GM after GC.FinalGC`, `[EXIT] GM after C_DeinitConsole`, `[EXIT] GM after R_DeinitColormaps`, `[EXIT] GM after R_Shutdown`, `[EXIT] GM after I_ShutdownGraphics`, `[EXIT] GM after I_ShutdownInput`, `[EXIT] GM after M_SaveDefaultsFinal`, `[EXIT] GM after DeleteStartupScreen`, `[EXIT] GM after C_UninitCVars`, `[EXIT] GM after CloseWidgetResources`, `[EXIT] GM after delete Args`
+**Si es cierta, la última marca en el log es:** `[EXIT] FB ~before C3D_Fini`.
+
+**Marcas (en orden, post-`D_Cleanup()`):**
+`[EXIT] GM after CloseNetwork`, `[EXIT] GM after GC`, `[EXIT] GM after C_DeinitConsole`, `[EXIT] GM after R_DeinitColormaps`, `[EXIT] GM after R_Shutdown`, `[EXIT] GM after I_ShutdownGraphics`
+En el destructor `~C3DFrameBuffer()`: `[EXIT] FB ~before C3D_FrameEnd`, `[EXIT] FB ~after C3D_FrameEnd`, `[EXIT] FB ~before C3D_RenderTargetDelete`, `[EXIT] FB ~after C3D_RenderTargetDelete`, `[EXIT] FB ~before C3D_Fini`
 
 **Pasada única:** sin archivo de control.
 
 | Pasada | Archivos de control | Qué mirar en pantalla |
 |---|---|---|
-| Única | ninguno | Log hasta última `[EXIT] GM after` |
+| Única | ninguno | Log hasta última `[EXIT]` |
 
-**Única variable:** las marcas `[EXIT] GM after` en `GameMain()` post-`D_Cleanup()` (solo lectura).
+**Única variable:** las marcas `[EXIT]` post-`D_Cleanup()` y en `~C3DFrameBuffer()` (solo lectura).
 
-**Marcas que se quedan:** las `[EXIT]` de `d_main.cpp` y `c3d_framebuffer.cpp` + las 35 de `D_Cleanup()` + las ~12 nuevas post-`D_Cleanup()`.
+**Marcadores que se quedan:** los `[EXIT]` de `D_Cleanup()` (39), los nuevos `[EXIT] GM after` y `[EXIT] FB ~` de esta prueba.
+**Marcadores que se quitan:** `[EXIT] TryRunTics done`, `[EXIT] Before/After I_StartTic`, `[EXIT] Before/After D_ProcessEvents`, `[EXIT] Before D_Display`, `[EXIT] D_Display done` (pruebas 35-38, pregunta ya respondida).
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 40`
 
 **Autocomprobación:**
-1. **Tabla de diferencias.** Una pasada. +~12 marcas `[EXIT] GM after` en `GameMain()` tras `D_Cleanup()`. Sin cambiar lógica.
-2. **¿Cada hipótesis predice algo distinto?** Sí, cada marca ausente apunta a una función.
-3. **¿Se verá en pantalla?** Criterio es el log.
-4. **¿Una compilación?** Sí.
-5. **¿APIs con fuente?** Solo `N3DS_Log` (S10).
-6. **¿Si todas salen?** Si las 12 marcas aparecen, el problema es fuera de `GameMain()` (destructores globales, `atexit`, hook APT).
-7. **¿Alex lo prepara sin equivocarse?** Solo copiar `.3dsx`.
-8. **¿Existe?** No, marcas nuevas bajo `#ifdef __3DS__`.
-9. **¿Qué sigue?** Si marca N falta, la función N es la culpable. Si todas salen, investigar destructores globales.
+1. **+~15 marcas** en `d_main.cpp` y `c3d_framebuffer.cpp`. Sin cambiar lógica.
+2. **Hipótesis predice distinto:** si `C3D_Fini` es la culpable, `[EXIT] FB ~before C3D_Fini` es la última y no sale `~after C3D_Fini`. Si no, otra marca es la última.
+3. **Criterio es el log.**
+4. **Una compilación, sin interruptores.**
+5. **Solo `N3DS_Log`** (S10).
+6. **Si todas salen:** el problema es fuera de `GameMain()` (destructores globales, `atexit`, hook APT).
+7. **Solo copiar `.3dsx`.**
+8. **Marcas nuevas bajo `#ifdef __3DS__`.**
+9. **Si `[EXIT] FB ~before C3D_Fini` es la última:** confirmar F12 como causa y buscar por qué la GPU no termina. Si otra marca es la última, esa función es la culpable.
 
 ## Registro de pruebas
 
