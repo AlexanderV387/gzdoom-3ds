@@ -437,3 +437,49 @@ Uniformes del shader del motor (valores del log): `mvp=0`, `colorscale=4`, `colo
 |---|---|---|
 | `D_Cleanup()` completa todas sus funciones al cerrar desde HOME. El fallo está **después** de `D_Cleanup()`, en el código de `GameMain` que sigue: `CloseNetwork()`, `R_Shutdown()`, `I_ShutdownGraphics()`, destructores globales, o el camino de retorno a `main()` | El crash ocurre en la limpieza post-`D_Cleanup()` de `GameMain` (llamadas a `R_Shutdown()`, `I_ShutdownGraphics()`, `I_ShutdownInput()`, etc.) o en destructores globales tras `return 0` de `main()` | Qué función exacta post-`D_Cleanup()` falla; si es el mismo crash post-main ARM11 de la prueba 38B o un cuelgue diferente |
 
+## Prueba 40 (¿dónde se para post-`D_Cleanup()`?)
+
+**Lo que se pidió:**
+- [x] Prueba 40 = post-`D_Cleanup()` en `GameMain()` + destructor `~C3DFrameBuffer()`
+- [x] Hipótesis principal: `C3D_Fini()` no vuelve (F12)
+- [x] Marca antes y después de `C3D_FrameEnd`, `C3D_RenderTargetDelete`, `C3D_Fini`
+- [x] Plantilla escrita y revisada
+
+**Pregunta:** ¿El cierre desde HOME se queda en `C3D_Fini()` (F12: espera sin límite a la GPU)?
+
+**Lo que ya sabemos:**
+- Punto 12 y prueba 39: `D_Cleanup()` completa sin fallar. El fallo es post-`D_Cleanup()`.
+- F12 (nuevo): `C3D_Fini()` espera indefinidamente a la cola de la GPU. Si quedó trabajo que no termina, no vuelve.
+- `GameMain()` (d_main.cpp:4510-4532) llama a `I_ShutdownGraphics()` (l.4518) → destructor `~C3DFrameBuffer()` (c3d_framebuffer.cpp:105-121) → `C3D_FrameEnd()` → `C3D_RenderTargetDelete()` → `C3D_Fini()`.
+
+**Hipótesis principal:** `C3D_Fini()` no vuelve porque la GPU tiene trabajo pendiente del último fotograma de `D_Display()` que no puede terminar.
+
+**Si es cierta, la última marca en el log es:** `[EXIT] FB ~before C3D_Fini`.
+
+**Marcas (en orden, post-`D_Cleanup()`):**
+`[EXIT] GM after CloseNetwork`, `[EXIT] GM after GC`, `[EXIT] GM after C_DeinitConsole`, `[EXIT] GM after R_DeinitColormaps`, `[EXIT] GM after R_Shutdown`, `[EXIT] GM after I_ShutdownGraphics`
+En el destructor `~C3DFrameBuffer()`: `[EXIT] FB ~before C3D_FrameEnd`, `[EXIT] FB ~after C3D_FrameEnd`, `[EXIT] FB ~before C3D_RenderTargetDelete`, `[EXIT] FB ~after C3D_RenderTargetDelete`, `[EXIT] FB ~before C3D_Fini`
+
+**Resultado:** El log (91 líneas, línea completa de marcas) muestra:
+- `[EXIT] GM after R_Shutdown` ✅ presente
+- `[EXIT] FB ~before C3D_RenderTargetDelete` ✅ presente (última marca)
+- `[EXIT] FB ~after C3D_RenderTargetDelete` ❌ ausente (primera ausente)
+- `[EXIT] GM after I_ShutdownGraphics`, `[EXIT] FB ~before C3D_Fini` ❌ ausentes
+
+Flujo: `I_ShutdownGraphics()` entró (el destructor se ejecutó), `mFrameStarted` era false (saltó `C3D_FrameEnd`), y `C3D_RenderTargetDelete(mTop)` (c3d_framebuffer.cpp:122) se bloqueó.
+
+El target `mTop` SÍ está enlazado (`C3D_RenderTargetSetOutput` en l.447), por lo que `C3D_RenderTargetDelete` toma la rama `linked` (citro3d `renderqueue.c:365-366`) → `C3D_RenderTargetDetachOutput()`. En l.381 de `renderqueue.c`, esta función llama a `C3Di_WaitAndClearQueue(-1)` cuando `!inFrame`, esperando indefinidamente a la cola GPU.
+
+**Tabla de hipótesis:**
+
+| Hipótesis | Resultado |
+|---|---|
+| **A (`C3D_Fini()` no vuelve):** última marca `[EXIT] FB ~before C3D_Fini` | ❌ **DESCARTADA** — ni siquiera llega a `C3D_Fini()` |
+| **B (`C3D_RenderTargetDelete` bloquea):** última marca `[EXIT] FB ~before C3D_RenderTargetDelete` | ✅ **CONFIRMADA** |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| El bloqueo está en `C3D_RenderTargetDelete(mTop)` (c3d_framebuffer.cpp:122). `mFrameStarted` era false, así que `C3D_FrameEnd()` no se llamó. `C3D_RenderTargetDelete` espera a la cola GPU indefinidamente cuando el target está enlazado y `!inFrame` (citro3d `renderqueue.c:381`) | La GPU tiene trabajo pendiente del último frame que no se cerró con `C3D_FrameEnd()` porque `mFrameStarted` era false. La prueba 38B (saltando `D_Display()`) cerraba limpio porque no había trabajo pendiente | Por qué `mFrameStarted` era false al cerrar; si llamar a `C3D_FrameEnd(0)` antes de shutdown resuelve el problema |
+

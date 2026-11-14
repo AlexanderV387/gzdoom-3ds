@@ -21,58 +21,61 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 10. **OPTIONS cierra el juego:** `svcBreak` desde `GPUCMD_AddInternal` (resuelto con `addr2line` sobre la 36): el búfer de comandos de la GPU se llena (`hechos-3ds.md` F8).
 11. **`C3D_FrameBegin` bloquea al cerrar desde HOME.** Con `C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK` se queda indefinidamente en el fotograma 2016. La marca `FB_before` aparece pero no `FB_after` (prueba 37).
 12. Sin `SYNCDRAW`, `C3D_FrameBegin` vuelve al cerrar desde HOME (`FB_after` en log A). `D_Cleanup()` completa todas sus funciones sin fallar (prueba 39). En la pasada 38B (saltando `D_Display()`) llega a `GameMain exit 0` pero hay crash post-main (dump PC=0, LR=2) (prueba 38).
+14. **`C3D_RenderTargetDelete` bloquea al cerrar desde HOME:** `mFrameStarted` era false (saltó `C3D_FrameEnd`), y `C3D_RenderTargetDelete(mTop)` se quedó en `C3Di_WaitAndClearQueue(-1)` esperando a la cola GPU (citro3d `renderqueue.c:381`, vía `C3D_RenderTargetDetachOutput` porque el target estaba enlazado). La GPU tenía trabajo pendiente sin cerrar (prueba 40).
 13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
 
 ## Pregunta abierta
 
-**¿Se para en `C3D_Fini()` al cerrar desde HOME?** (prueba 40). También pendiente: el crash post-main y el menú.
+**¿Un "flush GPU" con timeout antes de `I_ShutdownGraphics()` vacía la cola y evita que `C3D_RenderTargetDelete` espere indefinidamente?** (prueba 41). También pendiente: el crash post-main y el menú.
 
-## Prueba 40 (¿se para en `C3D_Fini()` del destructor del framebuffer?)
+## Prueba 41 (arreglo: vaciar la cola GPU antes de apagar)
 
 **Lo que se pidió:**
-- [x] Prueba 40 = post-`D_Cleanup()` en `GameMain()` + destructor `~C3DFrameBuffer()`
-- [x] Hipótesis principal: `C3D_Fini()` no vuelve (F12)
-- [x] Marca antes y después de `C3D_FrameEnd`, `C3D_RenderTargetDelete`, `C3D_Fini`
-- [x] Plantilla escrita y revisada
+- [x] Prueba 41 = arreglo, no más marcas
+- [x] Que tras la orden de cerrar no quede trabajo GPU sin terminar
+- [x] Apoyarse en F12 y la pasada B de la 38
+- [x] Solo texto, sin código (primero la plantilla)
 
-**Pregunta:** ¿El cierre desde HOME se queda en `C3D_Fini()` (F12: espera sin límite a la GPU)?
+**Pregunta:** ¿Esperar a que la GPU termine el trabajo pendiente (con timeout de 120 vblank) antes de `I_ShutdownGraphics()` hace que el cierre desde HOME complete sin bloquear?
 
 **Lo que ya sabemos:**
-- Punto 12 y prueba 39: `D_Cleanup()` completa sin fallar. El fallo es post-`D_Cleanup()`.
-- F12 (nuevo): `C3D_Fini()` espera indefinidamente a la cola de la GPU. Si quedó trabajo que no termina, no vuelve.
-- `GameMain()` (d_main.cpp:4510-4532) llama a `I_ShutdownGraphics()` (l.4518) → destructor `~C3DFrameBuffer()` (c3d_framebuffer.cpp:105-121) → `C3D_FrameEnd()` → `C3D_RenderTargetDelete()` → `C3D_Fini()`.
+- Punto 14 (prueba 40): `C3D_RenderTargetDelete(mTop)` bloquea en `C3Di_WaitAndClearQueue(-1)` (citro3d `renderqueue.c:381`).
+- F12: `C3D_Fini()` llama a `C3Di_WaitAndClearQueue(-1)` (citro3d `base.c:343` → `renderqueue.c:130`). Espera sin límite.
+- `C3D_FrameEnd(0)` NO espera a la GPU: solo envía comandos con `gxCmdQueueRun` (`renderqueue.c:240`) y devuelve. Si `inFrame` es false, retorna sin hacer nada (`renderqueue.c:200`).
+- `C3D_FrameBegin(C3D_FRAME_SYNCDRAW)` espera a que termine el trabajo del frame anterior (`renderqueue.c:160-172`). Con `C3D_FRAME_NONBLOCK` devuelve false si la GPU sigue ocupada, sin bloquear.
+- Prueba 38B: saltando `D_Display()` en el último frame, el cierre funciona porque no hay trabajo GPU pendiente.
+- En el log 40, el último frame completado (347) llamó a `C3D_FrameEnd(0)` pero la GPU aún procesaba comandos cuando llegó el destructor.
+- **Nota sobre el hook citro3d:** `C3D_Init()` registra `APTHOOK_ONSUSPEND` (`base.c:131`) que llama a `C3Di_RenderQueueWaitDone()` → `WaitAndClearQueue(-1)` + `DisableVBlank` (`base.c:44-45`). Este hook ya drena la cola antes de que `aptMainLoop()` retorne. Si completó, la cola está vacía y parada. Si el juego sigue enviando comandos (frames 347-348), la cola se reinicia con `gxCmdQueueRun` en `C3D_FrameEnd`. El estado de la cola al llegar al shutdown depende de si esos frames tardíos completaron su trabajo GPU.
 
-**Hipótesis principal:** `C3D_Fini()` no vuelve porque la GPU tiene trabajo pendiente del último fotograma de `D_Display()` que no puede terminar.
+**Hipótesis A (el loop garantiza cola vacía y el cierre completa):**
+- Antes de `I_ShutdownGraphics()` en `GameMain()` (d_main.cpp:4501), se añade un loop: hasta 120 vblank, intentar `C3D_FrameBegin(C3D_FRAME_NONBLOCK)`; si acepta, hacer `C3D_FrameEnd(0)` y salir. Si `FrameBegin` acepta, la cola GPU estaba vacía (o se vació). `FrameEnd` envía un frame dummy mínimo y cierra `inFrame`. Luego `C3D_RenderTargetDelete` llega con cola vacía y `inFrame=false`, y `WaitAndClearQueue(-1)` devuelve rápido.
+- Si A es cierta: el log muestra `[EXIT] GM after I_ShutdownGraphics` y `[EXIT] FB ~after C3D_RenderTargetDelete`. El juego cierra.
 
-**Si es cierta, la última marca en el log es:** `[EXIT] FB ~before C3D_Fini`.
+**Hipótesis B (la GPU no termina nunca, haya o no timeout):**
+- Si B es cierta: el loop agota los 120 vblank sin que `C3D_FrameBegin` acepte. O bien, `FrameBegin` acepta pero `FrameEnd` envía comandos que la GPU no procesa, y `C3D_RenderTargetDelete` igual espera. La última marca sigue siendo `[EXIT] FB ~before C3D_RenderTargetDelete`.
 
-**Marcas (en orden, post-`D_Cleanup()`):**
-`[EXIT] GM after CloseNetwork`, `[EXIT] GM after GC`, `[EXIT] GM after C_DeinitConsole`, `[EXIT] GM after R_DeinitColormaps`, `[EXIT] GM after R_Shutdown`, `[EXIT] GM after I_ShutdownGraphics`
-En el destructor `~C3DFrameBuffer()`: `[EXIT] FB ~before C3D_FrameEnd`, `[EXIT] FB ~after C3D_FrameEnd`, `[EXIT] FB ~before C3D_RenderTargetDelete`, `[EXIT] FB ~after C3D_RenderTargetDelete`, `[EXIT] FB ~before C3D_Fini`
+**Única variable que cambia:** el loop de "flush GPU" antes de `I_ShutdownGraphics()` en d_main.cpp.
 
-**Pasada única:** sin archivo de control.
-
-| Pasada | Archivos de control | Qué mirar en pantalla |
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
 |---|---|---|
-| Única | ninguno | Log hasta última `[EXIT]` |
+| Única | ninguno | Log completo; juego cierra o cuelga |
 
-**Única variable:** las marcas `[EXIT]` post-`D_Cleanup()` y en `~C3DFrameBuffer()` (solo lectura).
+**Marcadores que se quedan:** los `[EXIT]` de `D_Cleanup()` y post-`D_Cleanup()` (pruebas 39-40). Los `[EXIT] FB ~` del destructor se mantienen.
+**Marcadores que se quitan:** ninguno.
 
-**Marcadores que se quedan:** los `[EXIT]` de `D_Cleanup()` (39), los nuevos `[EXIT] GM after` y `[EXIT] FB ~` de esta prueba.
-**Marcadores que se quitan:** `[EXIT] TryRunTics done`, `[EXIT] Before/After I_StartTic`, `[EXIT] Before/After D_ProcessEvents`, `[EXIT] Before D_Display`, `[EXIT] D_Display done` (pruebas 35-38, pregunta ya respondida).
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 40`
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 41`
 
 **Autocomprobación:**
-1. **+~15 marcas** en `d_main.cpp` y `c3d_framebuffer.cpp`. Sin cambiar lógica.
-2. **Hipótesis predice distinto:** si `C3D_Fini` es la culpable, `[EXIT] FB ~before C3D_Fini` es la última y no sale `~after C3D_Fini`. Si no, otra marca es la última.
+1. **Un cambio:** loop de flush GPU antes de `I_ShutdownGraphics()` en d_main.cpp. Sin tocar el renderizado ni el destructor.
+2. **Hipótesis predicen distinto log:** A → `[EXIT] GM after I_ShutdownGraphics` presente. B → última marca `[EXIT] FB ~before C3D_RenderTargetDelete` (igual que la 40).
 3. **Criterio es el log.**
-4. **Una compilación, sin interruptores.**
-5. **Solo `N3DS_Log`** (S10).
-6. **Si todas salen:** el problema es fuera de `GameMain()` (destructores globales, `atexit`, hook APT).
+4. **Una compilación, una pasada.**
+5. **Código de citro3d leído:** `C3D_FrameBegin NONBLOCK` retorna false sin bloquear si GPU ocupada (`renderqueue.c:172`). `C3D_FrameEnd` envía y devuelve (`renderqueue.c:240`). `C3D_RenderTargetDelete` espera si `!inFrame` (`renderqueue.c:365-381`). El hook `APTHOOK_ONSUSPEND` (`base.c:44-45`) ya drena la cola; el loop de la prueba 41 es redundante si la cola ya está vacía, pero inoficioso.
+6. **Si ambas fallan:** la GPU no responde ni con timeout. Falta investigar por qué los comandos no se procesan.
 7. **Solo copiar `.3dsx`.**
-8. **Marcas nuevas bajo `#ifdef __3DS__`.**
-9. **Si `[EXIT] FB ~before C3D_Fini` es la última:** confirmar F12 como causa y buscar por qué la GPU no termina. Si otra marca es la última, esa función es la culpable.
+8. **`C3D_FrameBegin`, `C3D_FrameEnd`, `gspWaitForVBlank` existen en citro3d/libctru, no se crea nada nuevo.**
+9. **Después del loop:** si la cola está vacía, `I_ShutdownGraphics()` → destructor → `C3D_RenderTargetDelete` no espera. Si la cola sigue llena, el destructor igual espera en `C3D_RenderTargetDelete`.
 
 ## Registro de pruebas
 
@@ -107,6 +110,7 @@ En el destructor `~C3DFrameBuffer()`: `[EXIT] FB ~before C3D_FrameEnd`, `[EXIT] 
 | 37 | ¿Qué paso de `D_Display()` se para al cerrar desde HOME? | ✅ `C3D_FrameBegin` bloquea indefinidamente (f2016, con NONBLOCK). Hipótesis S confirmada, A1/B/C descartadas. |
 | 38 | ¿Por qué `C3D_FrameBegin` no vuelve? | ✅ Sin SYNCDRAW vuelve (`FB_after`). Pero `D_Cleanup` se rompe: A se para en `D_Cleanup start`, B (sin D_Display) llega a `GameMain exit 0` pero Luma crasha post-main |
 | 39 | ¿Dónde se para dentro de `D_Cleanup()`? | ✅ 35/35 marcas presentes. `D_Cleanup()` completa sin fallar. El problema está **después**, en el código post-`D_Cleanup()` de `GameMain` o en destructores globales |
+| 40 | ¿Dónde se para post-`D_Cleanup()`? | ✅ `C3D_RenderTargetDelete(mTop)` bloquea. `mFrameStarted` false → saltó `C3D_FrameEnd`. GPU con trabajo pendiente. `C3D_Fini()` descartada como causa. |
 
 
 ## Pendientes que no son la pregunta abierta
