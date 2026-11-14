@@ -215,7 +215,7 @@ int main(int argc, char **argv)
 {
 	atexit(N3DS_AtexitCallback);
 	osSetSpeedupEnable(true);	// New 3DS: 804 MHz and the L2 cache
-	romfsInit();
+	Result g_RomfsInitRc = romfsInit();
 	mkdir("sdmc:/3ds", 0777);
 	mkdir(N3DS_DATA_DIR, 0777);
 
@@ -223,6 +223,15 @@ int main(int argc, char **argv)
 	if (LogFile) setvbuf(LogFile, nullptr, _IOLBF, 4096);	// line by line: a crash keeps the log
 	fprintf(LogFile, "%s %s for Nintendo 3DS (%s)\n", GAMENAME, GetVersionString(), __DATE__);
 	fprintf(LogFile, "Test: %s\n", N3DS_TEST_ID);
+	// Diagnostics: RomFS mount result, homebrew flag, argv[0]
+	{
+		char d[256];
+		snprintf(d, sizeof(d), "[ROMFS] init=%s homebrew=%d argv[0]=%s\n",
+			R_SUCCEEDED(g_RomfsInitRc) ? "OK" : "FAIL",
+			envIsHomebrew(),
+			argc > 0 && argv[0] ? argv[0] : "(null)");
+		N3DS_Log(d);
+	}
 	N3DS_LogFlush();
 
 	g_StartTick = svcGetSystemTick();
@@ -245,7 +254,13 @@ int main(int argc, char **argv)
 	// The engine's own data (gzdoom.pk3 and game_support.pk3): in the RomFS (the CIA's, or the
 	// one inside the 3DSX), else in the SD card's data folder.
 	struct stat st;
-	progdir = stat("romfs:/data/" BASEWAD, &st) == 0 ? "romfs:/data/" : N3DS_DATA_DIR "/data/";
+	bool pk3_ok = (stat("romfs:/data/" BASEWAD, &st) == 0);
+	{
+		char d[128];
+		snprintf(d, sizeof(d), "[ROMFS] pk3: %s\n", pk3_ok ? "YES" : "NO");
+		N3DS_Log(d);
+	}
+	progdir = pk3_ok ? "romfs:/data/" : N3DS_DATA_DIR "/data/";
 	fprintf(LogFile, "Engine data: %s\n", progdir.GetChars());
 	fflush(LogFile);
 
