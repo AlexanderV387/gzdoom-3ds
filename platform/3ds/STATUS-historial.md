@@ -557,3 +557,45 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 |---|---|---|
 | Saltar `D_Display()` con `gameloop_abort` permite que el cierre complete: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `romfsExit` y `atexit` ejecutan sin fallar. Crash en ARM11 post-main en `_lseek_r`←`__libc_lock_release` (Newlib), FAR=0x18, Translation fault. | `_lseek_r` se invoca desde código de limpieza del runtime (descriptor de fichero corrupto o liberado prematuramente) durante la transición APT post-main. | Por qué Newlib intenta `_lseek_r` con un puntero inválido post-main; si el hook `APTHOOK_ONEXIT` se llega a ejecutar (no apareció `[APT] exit` en el log); el cortafuegos del audio del HOME es el sistema reintentando NDSP tras el suspend (sin línea del log que lo muestre) |
 
+
+## Prueba 42 (hecha, 1 pasada, log analizado)
+
+**Pregunta:** ¿Quitar `romfsExit()` de `main()` evita el crash post-main?
+
+**Lo que ya sabemos:**
+- Prueba 41: crash en `_lseek_r`←`__libc_lock_release`, FAR=0x18, Translation fault, ARM11, tras `atexit callback`.
+- `devoptab_t` (iosupport.h:36-76): `seek_r` en desplazamiento 0x18. FAR=0x18 = leer `seek_r` de puntero nulo.
+- `romfsExit()` (libctru, `romfs_dev.c`): desregistra el devoptab de "romfs:". Newlib mantiene FILE* abiertos a archivos .pk3 de romfs:.
+- `i_main_3ds.cpp:269`: `romfsExit()` se llama tras `gfxExit()`, antes de `fclose(LogFile)` y `return`.
+
+**Única variable que cambia:** `romfsExit()` (línea 269 de `i_main_3ds.cpp`) comentada con `#if 0 ... #endif`.
+
+**Log:** `/tmp/opencode/uploads/f8a2a9ee-ce85-454d-a71a-52917b63bad5/log.txt`
+
+**Resultado en pantalla:** Consola volvió al menú HOME sin crash. Tardó un poco en cerrar. La música del menú HOME se cortó y volvió como en la 41.
+
+**Marcas del log:**
+- `[mem] start: app 126976 KB, heap 72100 KB`
+- `T+0 ms: start`, `T+49 ms: GameMain start`
+- `[T+  3878] UZDoom version`, `[T+ 97172] C3D: backend ready`
+- `[T+ 97445] Init complete`
+- Frames 0-11: `begin=ok retries=0`
+- `[T+102341] MAP01 - Entryway`
+- `[APT] suspend`
+- Todas las marcas `[EXIT]` presentes: `gameloop_abort set`, `skip D_Display (always)`, `quickexit called`, `DeleteScreenJob done`, `S_StopAllChannels done`, `S_StopMusic done`, `CleanSWDrawer done`, `before RunEndoom`, `RunEndoom returned`, `CExitEvent caught`, `D_Cleanup start`, todas las `DC after ...`, `DC end`, `GM after ...`, `FB ~before/after C3D_RenderTargetDelete`, `FB ~before C3D_Fini`, `GM after I_ShutdownGraphics`, `GameMain returning`, `T+130166 ms: GameMain exit 0`, `after SDL_Quit`, `after gfxExit`, `atexit callback` ✅
+- **Sin crash.** Vuelta al HOME Menu.
+
+**Tiempo de cierre:** T+102341 (MAP01) a T+130166 (GameMain exit 0) = ~27 825 ms. El cierre en sí es rápido (todas las `[EXIT]` en línea 86 sin timestamps intermedios), pero el tiempo total incluye el suspend de APT y la transición.
+
+**Tabla de hipótesis:**
+
+| Hipótesis | Resultado |
+|---|---|
+| **A (romfsExit es la causa):** sin `romfsExit()`, el devoptab de romfs: permanece registrado. Newlib cierra FILE* sin fallar. Consola vuelve a HOME sin crash. | ✅ **CONFIRMADA** |
+| **B (romfsExit no es la causa):** el crash se produce por otra razón. Pantalla de error de Luma. | ❌ **DESCARTADA** |
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Quitar `romfsExit()` de `main()` evita el crash post-main. Cierre completo: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `atexit` y vuelta al HOME Menu sin crash. `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib aún tenía FILE* abiertos a archivos .pk3 de romfs:, causando `_lseek_r` con FAR=0x18 (puntero nulo + offset de `seek_r`). | El cierre lento (~28 s desde MAP01 hasta GameMain exit) incluye el tiempo de suspend de APT y la transición del sistema al HOME Menu. La música del HOME se corta porque el sistema libera recursos de audio al suspender la aplicación y los recupera al volver. | Tiempo exacto desde `gameloop_abort set` hasta la última marca (sin timestamp intermedio); si el cierre lento es del juego o del sistema APT; por qué la música del HOME se corta (sin logs del sistema) |
