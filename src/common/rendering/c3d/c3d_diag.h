@@ -10,6 +10,7 @@
 **   c3d-triangle.txt      instead of the engine's 2D, one fixed red triangle per frame
 **   c3d-minimal-shader.txt use the simple_tri shader (not the engine's) for the test triangle
 **   c3d-testflip.txt      two coloured quads via engine 2D path: red at (0,0), green at bottom
+**   c3d-menu-diag.txt     log viewport, geometry, textures and scissor for menu vs HUD frames
 **
 ** All lines start with "[C3D]" and are flushed to the SD card at once.
 **
@@ -31,6 +32,7 @@ extern bool NoTex;
 extern bool Triangle;
 extern bool MinimalShader;
 extern bool TestFlip;
+extern bool MenuDiag;
 
 void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -41,6 +43,9 @@ void FrameBegun(bool ok, int retries);			// after C3D_FrameBegin (and its retrie
 void FrameDone(bool drawn);						// end of Update: one summary line per frame
 void Draw(bool indexed, bool sent);				// every draw call
 bool WantDrawDetails();							// true for the first draws only
+bool MenuDiagWantFrame();						// true if this Draw2D frame should be logged for menu diag
+void MenuDiagRecordScissor(int l, int t, int r, int b);	// record one scissor call
+bool MenuDiagEmitScissor();						// log scissor summary for current frame, returns true if logged
 
 }
 }

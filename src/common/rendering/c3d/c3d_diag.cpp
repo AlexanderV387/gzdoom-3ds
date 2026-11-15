@@ -11,6 +11,8 @@
 
 #include "c3d_diag.h"
 #include "platform_3ds.h"
+#include "menustate.h"
+#include "gamestate.h"
 
 namespace C3DRenderer
 {
@@ -22,6 +24,7 @@ bool NoTex = false;
 bool Triangle = false;
 bool MinimalShader = false;
 bool TestFlip = false;
+bool MenuDiag = false;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -32,6 +35,10 @@ static int BeginRetries = 0;
 static bool BeginOk = false;
 static int Arrays = 0, Elements = 0, NotSent = 0;
 static int DrawsDescribed = 0;
+
+// Menu diag: up to 3 menu frames and 3 HUD frames
+static int MenuDiagMenuFrames = 0;
+static int MenuDiagHudFrames = 0;
 
 static bool Exists(const char *name)
 {
@@ -64,7 +71,9 @@ void Init()
 	Triangle = Exists("c3d-triangle.txt");
 	MinimalShader = Exists("c3d-minimal-shader.txt");
 	TestFlip = Exists("c3d-testflip.txt");
-	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d", NoDraw, NoTex, Triangle, MinimalShader, TestFlip);
+	MenuDiag = Exists("c3d-menu-diag.txt");
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d menudiag=%d",
+		NoDraw, NoTex, Triangle, MinimalShader, TestFlip, MenuDiag);
 }
 
 bool HangReported()
@@ -113,6 +122,55 @@ bool WantDrawDetails()
 {
 	if (DrawsDescribed >= DetailDraws) return false;
 	DrawsDescribed++;
+	return true;
+}
+
+bool MenuDiagWantFrame()
+{
+	if (!MenuDiag) return false;
+	if (menuactive != MENU_Off && MenuDiagMenuFrames < 3) {
+		MenuDiagMenuFrames++;
+		return true;
+	}
+	if (gamestate == GS_LEVEL && menuactive == MENU_Off && MenuDiagHudFrames < 3) {
+		MenuDiagHudFrames++;
+		return true;
+	}
+	return false;
+}
+
+static int MenuDiagSciN = 0;
+static int MenuDiagSciMinL, MenuDiagSciMinT, MenuDiagSciMaxR, MenuDiagSciMaxB;
+static int MenuDiagSciFrame = -1;
+
+void MenuDiagRecordScissor(int l, int t, int r, int b)
+{
+	if (!MenuDiag) return;
+	int fn = Frame;
+	if (fn != MenuDiagSciFrame) {
+		MenuDiagSciFrame = fn;
+		MenuDiagSciN = 0;
+		MenuDiagSciMinL = 9999;
+		MenuDiagSciMinT = 9999;
+		MenuDiagSciMaxR = -9999;
+		MenuDiagSciMaxB = -9999;
+	}
+	MenuDiagSciN++;
+	if (l < MenuDiagSciMinL) MenuDiagSciMinL = l;
+	if (t < MenuDiagSciMinT) MenuDiagSciMinT = t;
+	if (r > MenuDiagSciMaxR) MenuDiagSciMaxR = r;
+	if (b > MenuDiagSciMaxB) MenuDiagSciMaxB = b;
+}
+
+bool MenuDiagEmitScissor()
+{
+	if (!MenuDiag || MenuDiagSciN == 0) return false;
+	char buf[128];
+	snprintf(buf, sizeof(buf), "[MENU] f%d sci n=%d min=%d,%d max=%d,%d\n",
+		Frame, MenuDiagSciN, MenuDiagSciMinL, MenuDiagSciMinT, MenuDiagSciMaxR, MenuDiagSciMaxB);
+	N3DS_Log(buf);
+	N3DS_LogFlush();
+	MenuDiagSciN = 0;
 	return true;
 }
 

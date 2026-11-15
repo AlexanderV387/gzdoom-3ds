@@ -118,6 +118,9 @@ void C3DRenderState::SetScissor(int x, int y, int w, int h)
 	// screen's frame buffer is 240x400, turned 90 degrees.
 	const int W = Get()->GetClientWidth();
 	C3D_SetScissor(GPU_SCISSOR_NORMAL, y, W - x - w, y + h, W - x);
+#ifdef __3DS__
+	Diag::MenuDiagRecordScissor(y, W - x - w, y + h, W - x);
+#endif
 }
 
 void C3DRenderState::SetViewport(int x, int y, int w, int h)

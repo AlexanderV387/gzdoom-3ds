@@ -13,9 +13,11 @@
 
 #include "c3d_backend.h"
 #include "c3d_internal.h"
+#include "c3d_diag.h"
 #include "textures.h"
 #include "hw_material.h"
 #include "printf.h"
+#include "platform_3ds.h"
 
 namespace C3DRenderer
 {
@@ -133,6 +135,15 @@ bool C3DHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode,
 			h = tex->GetHeight();
 		}
 		if (!CreateTexture(texbuffer.mBuffer, w, h, texunit, false, "BindOrCreate")) return false;
+#ifdef __3DS__
+		if (Diag::MenuDiag)
+		{
+			int pw = TexDimension(w), ph = TexDimension(h);
+			N3DS_Log("[MENU] up %p %dx%d -> %dx%d canvas=%d\n",
+				tex, w, h, pw, ph, tex->isHardwareCanvas());
+			N3DS_LogFlush();
+		}
+#endif
 	}
 	const bool clampS = clampmode == CLAMP_X || clampmode == CLAMP_XY || clampmode == CLAMP_XY_NOMIP
 		|| clampmode == CLAMP_NOFILTER_X || clampmode == CLAMP_NOFILTER_XY;
