@@ -645,4 +645,4 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 
 | Demostrado | Probable | Sin datos |
 |---|---|---|
-| Con `argv[0] = "uzdoom"` cuando `argc=0`, el motor encontró `doom2.wad` (l.20: 2928 lumps), llegó a `Init complete` (l.55) y a la pantalla de título (`[MENU-DIAG]` l.77) | El fix de `i_main_3ds.cpp:242-248` es suficiente para que Azahar funcione sin más cambios | Qué más falla en Azahar tras la pantalla de título (el emulador no llegó a `D_DoomLoop`) |
+| Con `argv[0] = "uzdoom"` cuando `argc=0`, el motor encontró `doom2.wad` (l.20: 2928 lumps), llegó a `Init complete` (l.55) y a la pantalla de título (`[MENU-DIAG]` l.77). El arreglo de argv funciona en Azahar y no cambia nada en la consola (Alex, compilación 92 en consola: arranque normal, cierre desde HOME funciona). | El fix de `i_main_3ds.cpp:242-248` es suficiente para que Azahar funcione sin más cambios | Qué más falla en Azahar tras la pantalla de título (el emulador no llegó a `D_DoomLoop`) |
