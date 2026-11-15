@@ -33,6 +33,7 @@
 #include "v_draw.h"
 
 #ifdef __3DS__
+#include <stdio.h>
 #include "c3d_diag.h"
 #include "platform_3ds.h"
 #endif
@@ -65,17 +66,19 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 		auto &dcommands = drawer->mData;
 		int totalVerts = 0;
 		for (auto &c : dcommands) totalVerts += c.mVertCount;
-		N3DS_Log("[MENU] f%d d2d vp=%d,%d,%d,%d drawer=%dx%d cmds=%d verts=%d\n",
-			C3DRenderer::Diag::FrameN(), x, y, width, height,
-			drawer->GetWidth(), drawer->GetHeight(),
-			dcommands.Size(), totalVerts);
+		{ char buf[256];
+			snprintf(buf, sizeof(buf), "[MENU] f%d d2d vp=%d,%d,%d,%d drawer=%dx%d cmds=%zu verts=%d\n",
+				C3DRenderer::Diag::FrameN(), x, y, width, height,
+				(size_t)drawer->GetWidth(), (size_t)drawer->GetHeight(),
+				(size_t)dcommands.Size(), totalVerts);
+			N3DS_Log(buf); }
 		// Vertex geometry: scan all non-special commands for min/max and out-of-range
 		float gminx = 1e9f, gminy = 1e9f, gmaxx = -1e9f, gmaxy = -1e9f;
 		int farcount = 0;
 		auto &dvertices = drawer->mVertices;
 		for (auto &c : dcommands)
 		{
-			if (c.isSpecial != F2DDrawer::SpecialDrawCommand::NotSpecial) continue;
+			if (c.isSpecial != SpecialDrawCommand::NotSpecial) continue;
 			for (int vi = c.mVertIndex; vi < c.mVertIndex + c.mVertCount; vi++)
 			{
 				if (vi < 0 || vi >= (int)dvertices.Size()) continue;
@@ -94,8 +97,10 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 				if (vx < -400 || vx > 800 || vy < -240 || vy > 480) farcount++;
 			}
 		}
-		N3DS_Log("[MENU] f%d geo min=%.0f,%.0f max=%.0f,%.0f far=%d\n",
-			C3DRenderer::Diag::FrameN(), gminx, gminy, gmaxx, gmaxy, farcount);
+		{ char buf[256];
+			snprintf(buf, sizeof(buf), "[MENU] f%d geo min=%.0f,%.0f max=%.0f,%.0f far=%d\n",
+				C3DRenderer::Diag::FrameN(), gminx, gminy, gmaxx, gmaxy, farcount);
+			N3DS_Log(buf); }
 		N3DS_LogFlush();
 	}
 #endif
@@ -233,14 +238,16 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 				  if (!seen && menuDiagTexN < 12)
 				  {
 					  menuDiagTexSeen[menuDiagTexN++] = txptr;
-					  N3DS_Log("[MENU] f%d tex %s ptr=%p orig=%dx%d canvas=%d wrap=%d xform=%d shape=%d indexed=%d\n",
-						  fn, cmd.mTexture->GetName().c_str(), txptr,
+					  char buf[512];
+					  snprintf(buf, sizeof(buf), "[MENU] f%d tex %s ptr=%p orig=%dx%d canvas=%d wrap=%d xform=%d shape=%d indexed=%d\n",
+						  fn, cmd.mTexture->GetName().GetChars(), txptr,
 						  cmd.mTexture->GetTexelWidth(), cmd.mTexture->GetTexelHeight(),
 						  cmd.mTexture->isHardwareCanvas(),
 						  (cmd.mFlags & F2DDrawer::DTF_Wrap) ? 1 : 0,
 						  cmd.useTransform,
 						  cmd.shape2DBufInfo != nullptr,
 						  (cmd.mFlags & F2DDrawer::DTF_Indexed) ? 1 : 0);
+					  N3DS_Log(buf);
 					  N3DS_LogFlush();
 				  }
 			  }

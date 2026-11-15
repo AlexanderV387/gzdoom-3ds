@@ -9,6 +9,7 @@
 ** 2026 AlexanderV387 (Nintendo 3DS port). GPL v3 (see LICENSE).
 */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "c3d_backend.h"
@@ -139,8 +140,10 @@ bool C3DHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode,
 		if (Diag::MenuDiag)
 		{
 			int pw = TexDimension(w), ph = TexDimension(h);
-			N3DS_Log("[MENU] up %p %dx%d -> %dx%d canvas=%d\n",
+			char buf[256];
+			snprintf(buf, sizeof(buf), "[MENU] up %p %dx%d -> %dx%d canvas=%d\n",
 				tex, w, h, pw, ph, tex->isHardwareCanvas());
+			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
 #endif
