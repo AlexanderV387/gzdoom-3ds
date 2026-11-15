@@ -632,3 +632,17 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 | Demostrado | Probable | Sin datos |
 |---|---|---|
 | `romfsInit()` funciona en Azahar: devuelve OK. `envIsHomebrew()` es 0 (sin Homebrew Launcher). `argv[0]` es NULL. `romfs:/data/uzdoom.pk3` existe y es accesible. El RomFS no es la causa de "Cannot find a game IWAD". `doom2.wad` está presente (14.9 MB) y `stat()` lo encuentra (el lanzador imprime "IWAD: sdmc:/3ds/gzdoom/doom2.wad" solo si funciona). | El motor encuentra `doom2.wad` pero no lo reconoce como IWAD válido: `ValidateIWADs()` falla en `ScanIWAD()` o `CheckIWADInfo()`. La diferencia más clara entre Azahar y la consola es `argv[0]=(null)` vs un nombre de programa real. | Qué paso exacto del reconocimiento falla (cabecera del WAD, lumps, IWADINFO). Si `argv[0]=NULL` afecta al camino del reconocimiento. |
+
+## Prueba 92 (hecha, 1 pasada, log analizado)
+
+**Pregunta:** ¿Poner un nombre de programa en `argv[0]` cuando `argc=0` hace que el motor vea `-iwad` y arranque en Azahar?
+
+**Resultado:** ✅ Sí. Con `argv[0] = "uzdoom"` cuando `argc=0`, `FArgs::CheckValue(FArg_iwad)` encontró `-iwad` en la posición 1. El log muestra `adding sdmc:/3ds/gzdoom/doom2.wad, 2928 lumps` (línea 20), `Init complete` (línea 55) y llegó a la pantalla de título (`[MENU-DIAG]` línea 77). Sin FATAL. Frames C3D 0-11 OK.
+
+**Código:** `i_main_3ds.cpp:242-248`: si `argc < 1` o `argv == nullptr` o `argv[0] == nullptr`, se crea un `argv` estático con `"uzdoom"` y `argc = 1`. Bajo `#ifdef __3DS__`. En la consola `argc >= 1` → sin efecto.
+
+**Conclusión (tres columnas):**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Con `argv[0] = "uzdoom"` cuando `argc=0`, el motor encontró `doom2.wad` (l.20: 2928 lumps), llegó a `Init complete` (l.55) y a la pantalla de título (`[MENU-DIAG]` l.77) | El fix de `i_main_3ds.cpp:242-248` es suficiente para que Azahar funcione sin más cambios | Qué más falla en Azahar tras la pantalla de título (el emulador no llegó a `D_DoomLoop`) |

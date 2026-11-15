@@ -67,47 +67,14 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 42 | ¿Quitar `romfsExit()` de `main()` evita el crash post-main? | ✅ Sí. Cierre completo, vuelta al HOME Menu sin crash. Todas las marcas `[EXIT]` presentes hasta `atexit callback`. `GameMain exit 0`. Hipótesis A confirmada, B descartada. Causa: `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib tenía FILE* abiertos a archivos .pk3 de romfs:. |
 | 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
+| 92 | ¿`argv[0]` cuando `argc=0` arregla el reconocimiento del IWAD en Azahar? | ✅ Sí. Con `argv[0] = "uzdoom"`, el motor encontró `doom2.wad`, llegó a `Init complete` y a la pantalla de título. |
 
 
 ## Pendiente
 
 Sin pruebas activas.
 
-## Prueba 92
-
-**Lo que se pidió:** arreglar que `iwadparm` sea NULL en Azahar porque `argc=0` y `FArgs::CheckParm` no ve `-iwad` en la posición 0 [x]; quitar marcas `[IWAD]` y `[ROMFS]` de la 90/91 [x].
-
-**Pregunta:** ¿Poner un nombre de programa en `argv[0]` cuando `argc=0` hace que el motor vea `-iwad` y arranque en Azahar?
-
-**Lo que ya sabemos:** En Azahar `argc=0` y `argv[0]=(null)` (90). `-iwad` se añade con `AppendRawArg` y queda en la posición 0 de Args. `FArgs::CheckParm` busca desde la posición 1 (`m_argv.h:123`, `m_argv.cpp:346-356`). `CheckValue` igual (`m_argv.cpp:402-410`). S12.
-
-**Hipótesis única (arreglo):** Si `argc < 1` o `argv[0]` es nulo, insertar un `argv` temporal con `"uzdoom"` en la posición 0 antes de `Args = new FArgs(argc, argv)` en `i_main_3ds.cpp`. En la consola no cambia nada (`argc >= 1`).
-
-**Única variable que cambia:** un `if (argc < 1)` en `i_main_3ds.cpp` que crea un `argv` mínimo. Bajo `#ifdef __3DS__`.
-
-**Pasadas en Azahar:**
-| Pasada | Archivos de control | Qué mirar en log |
-|---|---|---|
-| A | ninguno | `IWAD: sdmc:/3ds/gzdoom/doom2.wad` presente y llega a `Init complete` |
-
-**Marcadores que se quedan:** los de la pregunta abierta del menú (`[MENU-DIAG]`).
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 92`
-
-**Autocomprobación:**
-1. **Tabla de diferencias:** solo cambia `i_main_3ds.cpp` con un `if (argc < 1)` que prepara `argv[0]`. En la consola `argc >= 1` → sin efecto.
-2. **Cada hipótesis predice algo distinto:** arreglo funciona → no hay FATAL, aparece `Init complete`, Azahar llega al título. No funciona → igual que antes, FATAL sin `Init complete`.
-3. **Pantalla no es fiable:** el criterio es el log (`Init complete` presente o ausente).
-4. **Una compilación:** el arreglo se prueba en una pasada.
-5. **API citada:** `FArgs::CheckParm` (m_argv.cpp:346-356) itera desde `m_argc - 1` hacia 1. `CheckValue` (m_argv.cpp:402-410) igual. S12.
-6. **Si no funciona:** el problema no está en `argv[0]` sino en otro lugar del camino de `-iwad`.
-7. **Alex prepara la pasada:** sin archivos de control.
-8. **Nombres buscados:** `FArgs` existe en `m_argv.h`. `AppendRawArg` en `i_main_3ds.cpp`. `N3DS_Log` en `platform_3ds.h`.
-9. **Flujo:** `argc < 1` → se crea `argv[0] = "uzdoom"` → `FArgs(1, argv)` → `AppendRawArg("-iwad", ...)` → ahora `-iwad` está en la posición 1 → `CheckValue(FArg_iwad)` lo encuentra → `iwadparm` tiene valor → `IdentifyVersion()` recibe el IWAD → juego arranca.
-
 ## Pendientes que no son la pregunta abierta
-
-- **Azahar:** la prueba 36 se cierra a los 6 s con "Cannot find a game IWAD", aunque `doom2.wad` está en la SD del emulador. RomFS funciona correctamente en Azahar (prueba 90: `romfsInit()` OK, `uzdoom.pk3` presente). El archivo se encuentra (`stat()` OK) pero el motor no lo reconoce como IWAD válido: `ValidateIWADs()` falla en `ScanIWAD()` o `CheckIWADInfo()`.
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
 - **Cierre lento:** medir con los T+ms del log cuánto tarda desde `gameloop_abort set` hasta la última marca (prueba 42: T+102341 a T+130166 = ~28 s, pero incluye tiempo hasta el suspend).
 - **Música del HOME:** se corta al cerrar el juego y tarda en volver (pruebas 41-42).
