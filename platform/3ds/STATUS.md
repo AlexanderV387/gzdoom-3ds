@@ -68,11 +68,81 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
 
+## Prueba 43
 
+**Lo que se pidió:**
+- [x] Medir por fotograma (con número de frame): llamadas a Draw2D, valores de viewport y scissor (antes y después de la rotación en `c3d_renderstate.cpp`), tamaño de F2DDrawer.
+- [x] Detalles del primer draw command: vértices, tamaño de textura (original y subida), modo wrap, matriz transform (%.3f).
+- [x] Marcas escasas, no cada frame.
+- [x] Misma compilación probada en consola y Azahar; abrir menú con Start (`m`, Z8), captura con `azahar-captura.sh`.
+- [x] Comparar logs línea a línea.
 
-## Pendiente
+**Pregunta:** ¿Los valores de viewport, scissor y transform del menú encajan con el framebuffer de 240x400, o alguno está fuera de rango?
 
-Sin pruebas activas.
+**Lo que ya sabemos:**
+- Punto 9: menú grande y repetido en consola; HUD, título y consola OK.
+- Punto 34: valores de escala normales.
+- Z7: menú OK en Azahar (Software renderer).
+- `c3d_renderstate.cpp:108-129`: SetScissor y SetViewport rotan coordenadas con `W=400`.
+- `c3d_framebuffer.cpp:86`: framebuffer es 240x400.
+- `hw_draw2d.cpp:54`: Draw2D llama SetViewport una vez al inicio, luego `hw_draw2d.cpp:132` llama SetScissor por command dentro del for.
+
+**Hipótesis A:** La rotación de viewport/scissor es incorrecta para el menú (coordenadas fuera de rango del FB 240x400).
+- Si A es cierta, el log mostrará `[C3D] menu vp` o `[C3D] menu sci` con valores negativos o > 400/>240 después de rotar.
+
+**Hipótesis B:** El F2DDrawer o los vértices del menú usan dimensiones distintas a 400x240.
+- Si B es cierta, el log mostrará `[C3D] menu 2dd` con Width/Height distintos de 400/240, o `[C3D] menu v0` con coordenadas de vértices fuera de [0,400]x[0,240].
+
+**Hipótesis C:** La textura del menú se sube con dimensiones incorrectas o wrap mode no esperado.
+- Si C es cierta, el log mostrará `[C3D] menu tex` con tamaño de textura subido distinto al original, o con wrap=CLAMP_NONE cuando `cmd.mFlags & DTF_Wrap` NO está activo (`hw_draw2d.cpp:175`: sin DTF_Wrap usa CLAMP_XY, con DTF_Wrap usa CLAMP_NONE).
+
+**Única variable que cambia:** marcas de diagnóstico en `hw_draw2d.cpp:89-132` (bajo `#ifdef __3DS__`, bucle de commands dentro de Draw2D), `c3d_renderstate.cpp:108-129` (SetScissor, SetViewport) y `c3d_diag.h` + `c3d_diag.cpp:60-68` (nuevo switch `c3d-menu-diag.txt`, añadir `MenuDiag = Exists("c3d-menu-diag.txt")` en `Diag::Init()`). Solo se activan con el archivo de control. `hw_draw2d.cpp` es archivo común del motor: las marcas van bajo `#ifdef __3DS__`. Los archivos `c3d_*.cpp` usan `#include "menustate.h"` para acceder a `menuactive` (`menu.cpp:113`) y distinguir llamadas del menú de otros draw calls.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | menú como está (referencia visual) |
+| B | `c3d-menu-diag.txt` (vacío) | menú igual, log con marcas `[C3D] menu` |
+
+**Pasadas en Azahar:**
+| Pasada | Qué hacer | Qué mirar |
+|---|---|---|
+| C | mismo build, `c3d-menu-diag.txt` vacío, abrir menú con `m` | captura con `azahar-captura.sh menu43`, log con marcas `[C3D] menu` |
+
+**Comparar logs B (consola) y C (Azahar) línea a línea** para ver si viewport, scissor y transform son distintos entre hardware y emulador.
+
+**Marcadores que se quedan:** los de la pregunta abierta (cierre desde HOME, `gameloop_abort`). **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 43`.
+
+**Autocomprobación:**
+
+1. **Tabla de diferencias.** Si cambias un shader, compara **instrucción por instrucción**: qué lee cada una (constante, uniforme, registro temporal, entrada) y **qué componentes escribe** (`.xy` no es lo mismo que `.xyzw`). Cada diferencia es una fila. Para cada par de pasadas que vas a comparar, haz una tabla con **todo** lo que cambia entre ellas: shader, valores de los uniformes, vértices (coordenadas y z), atributos (cuántos, cuáles fijos y qué registro), estado (blend, depth, combinadores), textura y llamada de dibujo. Para llenarla, lee el código de los **dos caminos**, no solo el que escribiste. Si cambia más de una fila, la prueba no aísla una sola variable: o separas las filas en pasadas distintas, o la conclusión solo podrá nombrar el conjunto ("el shader o sus datos").
+   *Respuesta:* Entre A y B solo cambia que el log contiene marcas `[C3D] menu` (pasada B) o no (pasada A). Shader, uniformes, vértices, estado, textura y llamada de dibujo son idénticos. Entre B y C cambia solo la plataforma (hardware vs Azahar); el código es el mismo.
+
+2. **¿Cada hipótesis predice algo distinto en el log?** Escribe la línea `[C3D]` concreta que saldría bajo cada una. Si dos hipótesis dan el mismo log, no las distingue esta prueba.
+   *Respuesta:* A → `[C3D] menu vp x=... y=... w=... h=...` con valores negativos o >400/>240. B → `[C3D] menu 2dd W=... H=...` con W≠400 o H≠240. C → `[C3D] menu tex orig=... up=... wrap=...` con wrap≠CLAMP_XY. Si todas normales → el fallo es interpretación GPU, no valores.
+
+3. **¿Lo que dices que se verá en pantalla puede verse?** Comprueba el color final con los datos reales: qué registro de entrada lee el shader y qué valor le llega. Un triángulo negro sobre fondo negro "no se ve" aunque funcione. Si la pantalla no es fiable, el criterio es el log.
+   *Respuesta:* No hay cambio visual entre pasadas; el criterio es el log.
+
+4. **¿Se resuelve en una sola compilación?** Si sabes de antemano que harán falta más pruebas para separar hipótesis ("para distinguir B de C haría falta la 28"), mete esas variantes **en esta**: un interruptor por variante, una pasada por variante. Cada compilación y cada ronda en la consola cuestan más que una pasada extra.
+   *Respuesta:* Sí: si los valores son normales, la comparación B vs C (consola vs Azahar) ya está en el mismo build. Si algún valor es anómalo, se investiga ese valor directamente.
+
+5. **¿Cada afirmación sobre una API tiene su fuente** (archivo y línea en `~/work/refs/`, o `hechos-3ds.md`)? No basta con que la función exista: escribe **qué dice ese código que pasa** y cuándo (por ejemplo, "el gancho ONEXIT se llama en `aptExit`, después de `main`"), y saca tu predicción del log de ahí, no de lo que suena lógico.
+   *Respuesta:* `C3D_SetViewport` en `~/work/refs/citro3d/source/base.c:136` (firma `void C3D_SetViewport(u32 x, u32 y, u32 w, u32 h)`). `C3D_SetScissor` en `~/work/refs/citro3d/source/base.c:148` (firma `void C3D_SetScissor(GPU_SCISSORMODE mode, u32 left, u32 top, u32 right, u32 bottom)`). `F2DDrawer::GetWidth/Height` en `v_2ddrawer.h:265-266`. `RenderCommand::transform` en `v_2ddrawer.h:169`. `menuactive` declarado en `menustate.h:33`, definido en `menu.cpp:113`.
+
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Busca la hipótesis que tu diseño no puede descartar porque esa fila de la tabla **nunca cambia** en ninguna pasada (por ejemplo, los datos del dibujo). Si la hay, añade una pasada que la cambie a ella sola, o escribe que esta prueba no la distingue.
+   *Respuesta:* Si A, B y C dan valores normales en consola, sabría que los valores numéricos son correctos y el fallo está en cómo la GPU interpreta esos valores (estado residual, orden de llamadas, diferencia hardware vs Azahar). Comparando B vs C se ve si Azahar usa valores distintos.
+
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Prefiere archivos de control vacíos con nombres distintos a archivos con contenido (un número dentro), que el Bloc de notas puede guardar con BOM o salto de línea.
+   *Respuesta:* Sí: pasada A sin archivos, pasada B con `c3d-menu-diag.txt` vacío.
+
+8. **¿Lo que vas a añadir ya existe?** Antes de crear una función, un archivo, un interruptor o una variable, busca su nombre: `grep -rn "nombre" src/` y mira si ese archivo se compila en la 3DS (`src/CMakeLists.txt`). Si ya existe, se modifica ahí (bajo `#ifdef __3DS__` si es código del motor); si defines otra, el enlazado falla.
+   *Respuesta:* `grep -rn "MenuDiag" src/` → sin resultados. `Diag::Init()` y `Diag::Line()` ya existen en `c3d_diag.h/cpp`. Se añade `Diag::MenuDiag` como bool estático más en el mismo patrón.
+
+9. **¿Qué se ejecuta después de tu cambio?** Sigue el flujo desde tu cambio hasta que el resultado se vea (en pantalla o en el log): qué funciones corren después, si alguna dibuja, espera o escribe en la SD, y si el log sigue abierto. Si en ese camino algo puede colgarse, pon una marca antes de ese paso.
+   *Respuesta:* Tras cada marca `Draw2D()` sigue iterando commands (`hw_draw2d.cpp:89`). El log `N3D_Log` sigue abierto escribiendo a SD. No hay riesgo de cuelgue por las marcas.
 
 ## Pendientes que no son la pregunta abierta
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
