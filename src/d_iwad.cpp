@@ -41,6 +41,11 @@
 #include "sc_man.h"
 #include "version.h"
 
+#ifdef __3DS__
+#include <errno.h>
+#include "platform_3ds.h"
+#endif
+
 EXTERN_CVAR(Bool, queryiwad);
 EXTERN_CVAR(String, queryiwad_key);
 EXTERN_CVAR(Bool, disableautoload);
@@ -350,6 +355,16 @@ FIWadManager::FIWadManager(const char *firstfn, const char *optfn)
 		GStrings.LoadStrings(check, language);
 		int num = check.CheckNumForName("IWADINFO");
 		if (num >= 0)
+#ifdef __3DS__
+	{
+		char d[256];
+		const char *base = strrchr(fn, "/");
+		base = base ? base + 1 : fn;
+		snprintf(d, sizeof(d), "[IWAD] info %s IWADINFO=FOUND
+", base);
+		N3DS_Log(d);
+	}
+#endif
 		{
 			auto data = check.ReadFile(num);
 			ParseIWadInfo("IWADINFO", data.string(), (int)data.size());
@@ -370,6 +385,22 @@ int FIWadManager::ScanIWAD (const char *iwad)
 {
 	FileSystem check;
 	check.InitSingleFile(iwad, nullptr);
+
+#ifdef __3DS__
+	{
+		char d[256];
+		const char *base = strrchr(iwad, '/');
+		base = base ? base + 1 : iwad;
+		int entries = check.GetNumEntries();
+		struct stat st;
+		int sz = stat(iwad, &st);
+		snprintf(d, sizeof(d), "[IWAD] scan %s open=%s entries=%d size=%s%lld
+",
+			base, entries > 0 ? "OK" : "FAIL", entries,
+			sz == 0 ? "" : "ERR", sz == 0 ? (long long)st.st_size : 0L);
+		N3DS_Log(d);
+	}
+#endif
 
 	mLumpsFound.Resize(mIWadInfos.Size());
 
@@ -406,10 +437,28 @@ int FIWadManager::ScanIWAD (const char *iwad)
 	{
 		if (mLumpsFound[i] == (1 << mIWadInfos[i].Lumps.Size()) - 1)
 		{
+#ifdef __3DS__
+		{
+			char d[256];
+			snprintf(d, sizeof(d), "[IWAD] match %s
+", mIWadInfos[i].Name.GetChars());
+			N3DS_Log(d);
+		}
+#endif
 			DPrintf(DMSG_NOTIFY, "Identified %s as %s\n", iwad, mIWadInfos[i].Name.GetChars());
 			return i;
 		}
 	}
+#ifdef __3DS__
+	{
+		char d[128];
+		const char *base = strrchr(iwad, "/");
+		base = base ? base + 1 : iwad;
+		snprintf(d, sizeof(d), "[IWAD] match %s NONE
+", base);
+		N3DS_Log(d);
+	}
+#endif
 	return -1;
 }
 
@@ -429,6 +478,16 @@ int FIWadManager::CheckIWADInfo(const char* fn)
 	std::string f = fn;
 	std::vector<FileSys::ResourceName> filenames = { { f, false } };
 	if (check.InitMultipleFiles(filenames, &lfi, nullptr))
+#ifdef __3DS__
+	{
+		char d[256];
+		const char *base = strrchr(fn, "/");
+		base = base ? base + 1 : fn;
+		snprintf(d, sizeof(d), "[IWAD] info %s open=OK
+", base);
+		N3DS_Log(d);
+	}
+#endif
 	{
 		int num = check.CheckNumForName("IWADINFO");
 		if (num >= 0)
@@ -457,9 +516,29 @@ int FIWadManager::CheckIWADInfo(const char* fn)
 				return -1;
 			}
 		}
+#ifdef __3DS__
+	{
+		char d[256];
+		const char *base = strrchr(fn, "/");
+		base = base ? base + 1 : fn;
+		snprintf(d, sizeof(d), "[IWAD] info %s IWADINFO=MISSING
+", base);
+		N3DS_Log(d);
+	}
+#endif
 		Printf(TEXTCOLOR_RED "%s: Unable to find IWADINFO\nFile has been removed from the list of IWADs\n", fn);
 		return -1;
 	}
+#ifdef __3DS__
+	{
+		char d[256];
+		const char *base = strrchr(fn, "/");
+		base = base ? base + 1 : fn;
+		snprintf(d, sizeof(d), "[IWAD] info %s open=FAIL
+", base);
+		N3DS_Log(d);
+	}
+#endif
 	Printf(TEXTCOLOR_RED "%s: Unable to open as resource file.\nFile has been removed from the list of IWADs\n", fn);
 	return -1;
 }
@@ -643,6 +722,14 @@ FString FIWadManager::IWADPathFileSearch(const FString &file)
 
 int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, const char *iwad, const char *zdoom_wad, const char *optional_wad)
 {
+#ifdef __3DS__
+	{
+		char d[128];
+		snprintf(d, sizeof(d), "[IWAD] IdentifyVersion enter iwadparm=%s
+", iwadparm ? iwadparm : "(null)");
+		N3DS_Log(d);
+	}
+#endif
 	const char *iwadparm = Args->CheckValue (FArg_iwad);
 	FString custwad;
 
@@ -680,6 +767,14 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 			if (isAbsolute)
 			{
 				if (FileExists(custwad)) mFoundWads.Push({ custwad, "", -1 });
+#ifdef __3DS__
+			{
+				char d[256];
+				snprintf(d, sizeof(d), "[IWAD] -iwad candidate %s
+", custwad.GetChars());
+				N3DS_Log(d);
+			}
+#endif
 			}
 			else
 			{
@@ -718,13 +813,47 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 		}
 	}
 
+#ifdef __3DS__
+	{
+		char d[128];
+		snprintf(d, sizeof(d), "[IWAD] beforefilter count=%u
+", mFoundWads.Size());
+		N3DS_Log(d);
+	}
+#endif
 	// Check for symbolic links leading to non-existent files and for files that are unreadable.
 	for (unsigned int i = 0; i < mFoundWads.Size(); i++)
 	{
+#ifdef __3DS__
+		{
+			char d[256];
+			bool fe = FileExists(mFoundWads[i].mFullPath);
+			bool fr = FileReadable(mFoundWads[i].mFullPath.GetChars());
+			if (!fe || !fr) {
+				int errno_save = errno;
+				snprintf(d, sizeof(d), "[IWAD] filter %s exists=%s readable=%s errno=%d
+",
+					mFoundWads[i].mFullPath.GetChars(), fe ? "Y" : "N", fr ? "Y" : "N", errno_save);
+				N3DS_Log(d);
+			}
+		}
+#endif
 		if (!FileExists(mFoundWads[i].mFullPath) || !FileReadable(mFoundWads[i].mFullPath.GetChars())) mFoundWads.Delete(i--);
 	}
 
+#ifdef __3DS__
+	{
+		char d[128];
+		snprintf(d, sizeof(d), "[IWAD] afterfilter count=%u
+", mFoundWads.Size());
+		N3DS_Log(d);
+	}
+#endif
 	// Now check if what got collected actually is an IWAD.
+#ifdef __3DS__
+	N3DS_Log("[IWAD] ValidateIWADs enter
+");
+#endif
 	ValidateIWADs();
 
 	// Check for required dependencies.
@@ -812,6 +941,14 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 		}
 	}
 
+#ifdef __3DS__
+	{
+		char d[256];
+		snprintf(d, sizeof(d), "[IWAD] result picks=%u
+", picks.Size());
+		N3DS_Log(d);
+	}
+#endif
 	// If we still haven't found a suitable IWAD let's error out.
 	if (picks.Size() == 0)
 	{

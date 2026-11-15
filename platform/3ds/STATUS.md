@@ -65,16 +65,50 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 40 | ¿Dónde se para post-`D_Cleanup()`? | ✅ `C3D_RenderTargetDelete(mTop)` bloquea. `mFrameStarted` false → saltó `C3D_FrameEnd`. GPU con trabajo pendiente. `C3D_Fini()` descartada como causa. |
 | 41 | ¿Saltar `D_Display()` siempre con `gameloop_abort` arregla el cierre y dónde está el crash post-main? | ✅ Cierre completo: todas las marcas `[EXIT]` presentes hasta `atexit callback`. Crash ARM11 post-main en `_lseek_r`←`__libc_lock_release` (Newlib), FAR=0x18, Translation fault. Hipótesis A confirmada, B descartada. |
 | 42 | ¿Quitar `romfsExit()` de `main()` evita el crash post-main? | ✅ Sí. Cierre completo, vuelta al HOME Menu sin crash. Todas las marcas `[EXIT]` presentes hasta `atexit callback`. `GameMain exit 0`. Hipótesis A confirmada, B descartada. Causa: `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib tenía FILE* abiertos a archivos .pk3 de romfs:. |
-| 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. El fallo "Cannot find a game IWAD" es por falta de `doom2.wad` en la ruta del motor, no por RomFS. |
+| 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
 
 
 ## Pendiente
 
 Sin pruebas activas.
 
+## Prueba 91
+
+**Lo que se pidió:** diagnosticar dónde falla el reconocimiento del IWAD en Azahar [x]; marcar si encuentra las definiciones de juegos (IWADINFO) [x]; si abre el WAD, su tamaño y cabecera [x]; qué juego intenta reconocer [x]; comprobar si algo usa `argv[0]` o `Args->GetArg(0)` [x].
+
+**Pregunta:** ¿`ValidateIWADs()` falla porque no puede abrir `doom2.wad` como archivo WAD, o porque no coincide con ninguna definición de juego conocida?
+
+**Lo que ya sabemos:** RomFS funciona (90). `doom2.wad` existe y `stat()` lo encuentra (90, launcher). El motor llega a `I_FatalError` con "Cannot find a game IWAD" (90). `argv[0]=(null)` en Azahar vs nombre real en consola (90).
+
+**Hipótesis A (no abre el WAD):** `FileSystem::InitSingleFile()` falla. Log esperado: `[IWAD] scan doom2.wad open=FAIL`.
+**Hipótesis B (abre el WAD pero no reconoce el juego):** `FileSystem` abre el archivo, lee los lumps, pero no coincide con `mIWadInfos[]`. Log esperado: `[IWAD] scan doom2.wad open=OK size=BYTES entries=N ... match=NONE`.
+**Hipótesis C (no llega a validar):** `mFoundWads` está vacío o el filtro `FileExists/FileReadable` (d_iwad.cpp:722) elimina el archivo. Log esperado: `[IWAD] beforefilter count=N` seguido de `[IWAD] afterfilter count=0`.
+
+**Única variable que cambia:** marcadores `[IWAD]` en `d_iwad.cpp` (`IdentifyVersion`, filtro l.722, `ValidateIWADs`, `ScanIWAD`, `CheckIWADInfo`). Se comprueba que ningún punto del camino usa `argv[0]`/`Args->GetArg(0)`. Bajo `#ifdef __3DS__`.
+
+**Pasadas en Azahar:**
+| Pasada | Archivos de control | Qué mirar en log |
+|---|---|---|
+| A | ninguno | `[IWAD]` completo hasta `[IWAD] result=` |
+
+**Marcadores que se quedan:** los de la pregunta abierta del menú. Se quitan: `[ROMFS]` de la 90.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 91`
+
+**Autocomprobación:**
+1. **Tabla de diferencias:** solo cambia el log; el código de reconocimiento es el mismo.
+2. **Cada hipótesis predice algo distinto:** A → `open=FAIL`, B → `open=OK ... match=NONE`, C → `count=0`.
+3. **Pantalla no es fiable:** Azahar cierra con FATAL igual; el criterio es el log.
+4. **Una compilación:** las tres hipótesis se distinguen en una pasada.
+5. **API citada:** `ScanIWAD()` (d_iwad.cpp:369) abre con `FileSystem::InitSingleFile()` y itera `GetNumEntries()`. `CheckIWADInfo()` (d_iwad.cpp:422) busca el lump `IWADINFO`. `ValidateIWADs()` (d_iwad.cpp:576) llama a una u otra según la extensión. El filtro l.722 elimina candidatos con `!FileExists()` o `!FileReadable()`.
+6. **Si todas dan igual:** si `[IWAD] validate count=0` → la causa está antes de validar (buscar IWAD). Si no sale ninguna marca `[IWAD]` → el fallo es antes de `IdentifyVersion()`.
+7. **Alex prepara la pasada:** sin archivos de control.
+8. **Nombres buscados:** `N3DS_Log` existe en `i_3ds.h`. `mIWadInfos`, `mFoundWads`, `ScanIWAD`, `CheckIWADInfo` están en `d_iwad.cpp`.
+9. **Flujo:** `IdentifyVersion()` → `CollectSearchPaths()` → `AddIWADCandidates()` → filtro l.722 → `ValidateIWADs()` (que llama internamente a `ScanIWAD()` y/o `CheckIWADInfo()`) → `picks.Size() == 0` → `I_FatalError()`. Marca antes de cada paso. Ningún punto del camino usa `argv[0]`/`Args->GetArg(0)`.
+
 ## Pendientes que no son la pregunta abierta
 
-- **Azahar:** la prueba 36 se cierra a los 6 s con "Cannot find a game IWAD", aunque `doom2.wad` está en la SD del emulador. RomFS funciona correctamente en Azahar (prueba 90: `romfsInit()` OK, `uzdoom.pk3` presente). El problema está en la búsqueda de IWAD: Azahar no tiene `doom2.wad` en la ruta que el motor consulta.
+- **Azahar:** la prueba 36 se cierra a los 6 s con "Cannot find a game IWAD", aunque `doom2.wad` está en la SD del emulador. RomFS funciona correctamente en Azahar (prueba 90: `romfsInit()` OK, `uzdoom.pk3` presente). El archivo se encuentra (`stat()` OK) pero el motor no lo reconoce como IWAD válido: `ValidateIWADs()` falla en `ScanIWAD()` o `CheckIWADInfo()`.
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
 - **Cierre lento:** medir con los T+ms del log cuánto tarda desde `gameloop_abort set` hasta la última marca (prueba 42: T+102341 a T+130166 = ~28 s, pero incluye tiempo hasta el suspend).
 - **Música del HOME:** se corta al cerrar el juego y tarda en volver (pruebas 41-42).
