@@ -239,6 +239,15 @@ int main(int argc, char **argv)
 		N3DS_FatalError(SDL_GetError());
 	}
 
+	// Azahar calls with argc=0 and argv=(null); FArgs::CheckParm skips position 0,
+	// so -iwad added later lands there and is invisible. Provide a minimal argv[0].
+	if (argc < 1 || argv == nullptr || argv[0] == nullptr)
+	{
+		static char progname[] = "uzdoom";
+		static char *fake_argv[1] = { progname };
+		argv = fake_argv;
+		argc = 1;
+	}
 	Args = new FArgs(argc, argv);
 	AddGameArguments();
 

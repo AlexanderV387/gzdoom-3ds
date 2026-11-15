@@ -66,45 +66,44 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 41 | ¿Saltar `D_Display()` siempre con `gameloop_abort` arregla el cierre y dónde está el crash post-main? | ✅ Cierre completo: todas las marcas `[EXIT]` presentes hasta `atexit callback`. Crash ARM11 post-main en `_lseek_r`←`__libc_lock_release` (Newlib), FAR=0x18, Translation fault. Hipótesis A confirmada, B descartada. |
 | 42 | ¿Quitar `romfsExit()` de `main()` evita el crash post-main? | ✅ Sí. Cierre completo, vuelta al HOME Menu sin crash. Todas las marcas `[EXIT]` presentes hasta `atexit callback`. `GameMain exit 0`. Hipótesis A confirmada, B descartada. Causa: `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib tenía FILE* abiertos a archivos .pk3 de romfs:. |
 | 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
+| 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
 
 
 ## Pendiente
 
 Sin pruebas activas.
 
-## Prueba 91
+## Prueba 92
 
-**Lo que se pidió:** diagnosticar dónde falla el reconocimiento del IWAD en Azahar [x]; marcar si encuentra las definiciones de juegos (IWADINFO) [x]; si abre el WAD, su tamaño y cabecera [x]; qué juego intenta reconocer [x]; comprobar si algo usa `argv[0]` o `Args->GetArg(0)` [x].
+**Lo que se pidió:** arreglar que `iwadparm` sea NULL en Azahar porque `argc=0` y `FArgs::CheckParm` no ve `-iwad` en la posición 0 [x]; quitar marcas `[IWAD]` y `[ROMFS]` de la 90/91 [x].
 
-**Pregunta:** ¿`ValidateIWADs()` falla porque no puede abrir `doom2.wad` como archivo WAD, o porque no coincide con ninguna definición de juego conocida?
+**Pregunta:** ¿Poner un nombre de programa en `argv[0]` cuando `argc=0` hace que el motor vea `-iwad` y arranque en Azahar?
 
-**Lo que ya sabemos:** RomFS funciona (90). `doom2.wad` existe y `stat()` lo encuentra (90, launcher). El motor llega a `I_FatalError` con "Cannot find a game IWAD" (90). `argv[0]=(null)` en Azahar vs nombre real en consola (90).
+**Lo que ya sabemos:** En Azahar `argc=0` y `argv[0]=(null)` (90). `-iwad` se añade con `AppendRawArg` y queda en la posición 0 de Args. `FArgs::CheckParm` busca desde la posición 1 (`m_argv.h:123`, `m_argv.cpp:346-356`). `CheckValue` igual (`m_argv.cpp:402-410`). S12.
 
-**Hipótesis A (no abre el WAD):** `FileSystem::InitSingleFile()` falla. Log esperado: `[IWAD] scan doom2.wad open=FAIL`.
-**Hipótesis B (abre el WAD pero no reconoce el juego):** `FileSystem` abre el archivo, lee los lumps, pero no coincide con `mIWadInfos[]`. Log esperado: `[IWAD] scan doom2.wad open=OK size=BYTES entries=N ... match=NONE`.
-**Hipótesis C (no llega a validar):** `mFoundWads` está vacío o el filtro `FileExists/FileReadable` (d_iwad.cpp:722) elimina el archivo. Log esperado: `[IWAD] beforefilter count=N` seguido de `[IWAD] afterfilter count=0`.
+**Hipótesis única (arreglo):** Si `argc < 1` o `argv[0]` es nulo, insertar un `argv` temporal con `"uzdoom"` en la posición 0 antes de `Args = new FArgs(argc, argv)` en `i_main_3ds.cpp`. En la consola no cambia nada (`argc >= 1`).
 
-**Única variable que cambia:** marcadores `[IWAD]` en `d_iwad.cpp` (`IdentifyVersion`, filtro l.722, `ValidateIWADs`, `ScanIWAD`, `CheckIWADInfo`). Se comprueba que ningún punto del camino usa `argv[0]`/`Args->GetArg(0)`. Bajo `#ifdef __3DS__`.
+**Única variable que cambia:** un `if (argc < 1)` en `i_main_3ds.cpp` que crea un `argv` mínimo. Bajo `#ifdef __3DS__`.
 
 **Pasadas en Azahar:**
 | Pasada | Archivos de control | Qué mirar en log |
 |---|---|---|
-| A | ninguno | `[IWAD]` completo hasta `[IWAD] result=` |
+| A | ninguno | `IWAD: sdmc:/3ds/gzdoom/doom2.wad` presente y llega a `Init complete` |
 
-**Marcadores que se quedan:** los de la pregunta abierta del menú. Se quitan: `[ROMFS]` de la 90.
+**Marcadores que se quedan:** los de la pregunta abierta del menú (`[MENU-DIAG]`).
 
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 91`
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 92`
 
 **Autocomprobación:**
-1. **Tabla de diferencias:** solo cambia el log; el código de reconocimiento es el mismo.
-2. **Cada hipótesis predice algo distinto:** A → `open=FAIL`, B → `open=OK ... match=NONE`, C → `count=0`.
-3. **Pantalla no es fiable:** Azahar cierra con FATAL igual; el criterio es el log.
-4. **Una compilación:** las tres hipótesis se distinguen en una pasada.
-5. **API citada:** `ScanIWAD()` (d_iwad.cpp:369) abre con `FileSystem::InitSingleFile()` y itera `GetNumEntries()`. `CheckIWADInfo()` (d_iwad.cpp:422) busca el lump `IWADINFO`. `ValidateIWADs()` (d_iwad.cpp:576) llama a una u otra según la extensión. El filtro l.722 elimina candidatos con `!FileExists()` o `!FileReadable()`.
-6. **Si todas dan igual:** si `[IWAD] validate count=0` → la causa está antes de validar (buscar IWAD). Si no sale ninguna marca `[IWAD]` → el fallo es antes de `IdentifyVersion()`.
+1. **Tabla de diferencias:** solo cambia `i_main_3ds.cpp` con un `if (argc < 1)` que prepara `argv[0]`. En la consola `argc >= 1` → sin efecto.
+2. **Cada hipótesis predice algo distinto:** arreglo funciona → no hay FATAL, aparece `Init complete`, Azahar llega al título. No funciona → igual que antes, FATAL sin `Init complete`.
+3. **Pantalla no es fiable:** el criterio es el log (`Init complete` presente o ausente).
+4. **Una compilación:** el arreglo se prueba en una pasada.
+5. **API citada:** `FArgs::CheckParm` (m_argv.cpp:346-356) itera desde `m_argc - 1` hacia 1. `CheckValue` (m_argv.cpp:402-410) igual. S12.
+6. **Si no funciona:** el problema no está en `argv[0]` sino en otro lugar del camino de `-iwad`.
 7. **Alex prepara la pasada:** sin archivos de control.
-8. **Nombres buscados:** `N3DS_Log` existe en `i_3ds.h`. `mIWadInfos`, `mFoundWads`, `ScanIWAD`, `CheckIWADInfo` están en `d_iwad.cpp`.
-9. **Flujo:** `IdentifyVersion()` → `CollectSearchPaths()` → `AddIWADCandidates()` → filtro l.722 → `ValidateIWADs()` (que llama internamente a `ScanIWAD()` y/o `CheckIWADInfo()`) → `picks.Size() == 0` → `I_FatalError()`. Marca antes de cada paso. Ningún punto del camino usa `argv[0]`/`Args->GetArg(0)`.
+8. **Nombres buscados:** `FArgs` existe en `m_argv.h`. `AppendRawArg` en `i_main_3ds.cpp`. `N3DS_Log` en `platform_3ds.h`.
+9. **Flujo:** `argc < 1` → se crea `argv[0] = "uzdoom"` → `FArgs(1, argv)` → `AppendRawArg("-iwad", ...)` → ahora `-iwad` está en la posición 1 → `CheckValue(FArg_iwad)` lo encuentra → `iwadparm` tiene valor → `IdentifyVersion()` recibe el IWAD → juego arranca.
 
 ## Pendientes que no son la pregunta abierta
 
