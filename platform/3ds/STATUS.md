@@ -67,52 +67,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 42 | ¿Quitar `romfsExit()` de `main()` evita el crash post-main? | ✅ Sí. Cierre completo, vuelta al HOME Menu sin crash. Todas las marcas `[EXIT]` presentes hasta `atexit callback`. `GameMain exit 0`. Hipótesis A confirmada, B descartada. Causa: `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib tenía FILE* abiertos a archivos .pk3 de romfs:. |
 | 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
+| 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ❌ Inconclusiva: `c3d-menu-diag.txt` no estaba en la SD, `menudiag=0`. Sin marcas `[MENU]` detalladas. Valores de escala normales e idénticos en consola y Azahar. Ninguna hipótesis confirmada. |
 
-## Prueba 43 (diseño de Claude sobre el borrador de Catequilla, `934a7aa3b`)
-
-**Lo que se pidió:** medir, en la consola y en Azahar con la misma compilación, qué hace distinto el menú que el HUD al dibujar en 2D. [x]
-
-**Pregunta:** ¿El menú manda a la GPU algo que el HUD no manda (geometría muy fuera de la pantalla, una textura especial o un scissor fuera de rango), y es igual en la consola que en Azahar?
-
-**Lo que ya sabemos:** punto 9 (menú grande y repetido en la consola; HUD, título y consola `~` bien); Z7 (menú perfecto en Azahar, también con el renderizador Software); punto 34 (escala del motor normal). Lo que el emulador hace distinto de la PICA200 real suele estar en: coordenadas de vértices muy grandes (la consola no las recorta igual), texturas raras (tamaño, lienzos/canvas) y scissor fuera del framebuffer.
-
-**Interruptor:** `c3d-menu-diag.txt` en `sdmc:/3ds/gzdoom/` → `Diag::MenuDiag` (`c3d_diag.cpp`, junto a `TestFlip`). Sin el archivo no se escribe nada.
-
-**Qué se registra** (solo con el interruptor; 3 fotogramas con el menú abierto, `menuactive != MENU_Off`, y 3 con el HUD, `gamestate == GS_LEVEL` y sin menú; cada línea con `f<N>` = `Diag::FrameN()`):
-- `[MENU] f<N> d2d vp=x,y,w,h drawer=WxH cmds=C verts=V` al entrar en `Draw2D` (`hw_draw2d.cpp`, tras `Set2D`).
-- `[MENU] f<N> geo min=x,y max=x,y far=K`: mínimo y máximo de los vértices de todos los comandos, aplicando `cmd.transform` cuando `cmd.useTransform`; `K` = comandos con algún vértice fuera de [-400, 800] × [-240, 480].
-- Por cada **textura distinta** del fotograma (como mucho 12): `[MENU] f<N> tex <nombre> orig=WxH canvas=0/1 wrap=0/1 xform=0/1 shape=0/1 indexed=0/1` (`cmd.mTexture->GetName()`, `GetTexelWidth/Height`, `isHardwareCanvas()`, `DTF_Wrap`, `useTransform`, `shape2DBufInfo != nullptr`, `DTF_Indexed`).
-- `[MENU] f<N> sci n=S min=l,t max=r,b`: cuántos comandos usan scissor y el rango de los valores **ya girados** que recibe `C3D_SetScissor` (`c3d_renderstate.cpp`, `SetScissor`).
-- En la textura subida: `[MENU] up <ptr> WxH -> PWxPH canvas=0/1` en `BindOrCreate` (`c3d_hwtexture.cpp`, cuando `!mCreated`), con `w`, `h` y `TexDimension(w/h)`; `<ptr>` es la dirección de `tex` (`%p`), y en la línea `tex` de `Draw2D` añade también `cmd.mTexture->GetTexture()` con `%p` para poder emparejarlas. Solo la primera vez que se crea cada una mientras el interruptor está activo.
-
-Todo con `snprintf` + `N3DS_Log` (S10). Unas 20-60 líneas en total, no en cada fotograma.
-
-**Hipótesis** (cada una explica "solo el menú", "solo la consola" y "grande y repetido"):
-- **G (geometría):** algún comando del menú tiene vértices muy lejos de la pantalla; la PICA200 real los rasteriza mal (se desbordan y se repiten) y el emulador los recorta. Log: `far > 0` en los fotogramas del menú y `far = 0` en los del HUD.
-- **T (textura):** el menú usa una textura que el HUD no usa y que la consola lee distinto (un canvas, una textura con wrap o subida con otro tamaño). Log: una línea `tex`/`up` que solo sale con el menú y con `canvas=1`, `wrap=1` o un tamaño raro.
-- **S (scissor):** algún comando del menú usa un scissor fuera de 240 × 400 o invertido. Log: `sci` con valores negativos, `r > 240`, `b > 400` o `l > r`.
-- **Ninguna:** valores normales e iguales en la consola y en Azahar. Entonces el fallo está en cómo la GPU real interpreta un estado que aún no medimos, y la 44 lo acota cambiando una cosa cada vez.
-
-**Pasadas:**
-| Dónde | Archivos de control | Qué hacer |
-|---|---|---|
-| Consola (Alex) | `c3d-menu-diag.txt` | Título, abrir el menú, esperar 5 s, cerrar el menú, empezar MAP01 y jugar 10 s. **Foto del menú.** Pasar `log.txt` |
-| Azahar (Catequilla) | `c3d-menu-diag.txt` en la SD de Azahar | `prueba-azahar.sh 43 300 abierto`, tecla `m` (Start), 5 s, `azahar-captura.sh menu43`, Start otra vez, `a` para empezar, 10 s, cerrar |
-
-**Criterio:** comparar los dos logs línea a línea y la foto con la captura.
-
-**Marcadores que se quedan:** todos los existentes. **Cómo se compila:** `platform/3ds/docker-build-test.sh 43`.
-
-**Autocomprobación:**
-1. Tabla de diferencias: entre consola y Azahar solo cambia la plataforma (misma compilación, mismo interruptor); no se cambia ningún dibujo.
-2. Cada hipótesis predice un log distinto: G → `far > 0` solo en el menú; T → una `tex`/`up` exclusiva del menú con valores raros; S → `sci` fuera de rango; ninguna → todo normal e igual.
-3. La pantalla no cambia con el interruptor; el criterio es el log, más la foto y la captura para comparar la forma del fallo.
-4. Una sola compilación sirve para la consola y Azahar; si sale "ninguna", la 44 cambia un estado cada vez.
-5. Fuentes: `hw_draw2d.cpp` (`Draw2D`: `SetViewport`, `Set2D`, bucle de comandos, `useTransform`, `SetMaterial`), `c3d_renderstate.cpp` (`SetScissor`, `SetViewport`), `c3d_hwtexture.cpp` (`CreateTexture`, `BindOrCreate`, `TexDimension`), `v_2ddrawer.h` (`TwoDVertex` con `x, y, z`; `RenderCommand`).
-6. Si todo sale igual, sé que los valores que mandamos son normales y que la diferencia está en un estado que no se mide aquí.
-7. Un solo archivo de control vacío, el mismo en los dos sitios.
-8. `MenuDiag` no existe (`grep -rn MenuDiag src/`); sigue el patrón de `TestFlip` en `c3d_diag`.
-9. Las marcas solo leen datos y escriben en el log, que sigue abierto; no esperan a la GPU ni cambian el dibujo.
 
 ## Pendientes que no son la pregunta abierta
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.

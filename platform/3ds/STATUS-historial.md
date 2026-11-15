@@ -646,3 +646,23 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 | Demostrado | Probable | Sin datos |
 |---|---|---|
 | Con `argv[0] = "uzdoom"` cuando `argc=0`, el motor encontró `doom2.wad` (l.20: 2928 lumps), llegó a `Init complete` (l.55) y a la pantalla de título (`[MENU-DIAG]` l.77). El arreglo de argv funciona en Azahar y no cambia nada en la consola (Alex, compilación 92 en consola: arranque normal, cierre desde HOME funciona). | El fix de `i_main_3ds.cpp:242-248` es suficiente para que Azahar funcione sin más cambios | Qué más falla en Azahar tras la pantalla de título (el emulador no llegó a `D_DoomLoop`) |
+
+## Prueba 43 (diseño de Claude sobre el borrador de Catequilla, `934a7aa3b`)
+
+**Lo que se pidió:** medir, en la consola y en Azahar con la misma compilación, qué hace distinto el menú que el HUD al dibujar en 2D.
+
+**Pregunta:** ¿El menú manda a la GPU algo que el HUD no manda (geometría muy fuera de la pantalla, una textura especial o un scissor fuera de rango), y es igual en la consola que en Azahar?
+
+**Lo que ya sabemos:** punto 9 (menú grande y repetido en la consola; HUD, título y consola `~` bien); Z7 (menú perfecto en Azahar, también con el renderizador Software); punto 34 (escala del motor normal).
+
+**Interruptor:** `c3d-menu-diag.txt` en `sdmc:/3ds/gzdoom/` → `Diag::MenuDiag` (`c3d_diag.cpp:74`). Sin el archivo no se escribe nada.
+
+**Hipótesis:** G (geometría, `far > 0` en menú), T (textura, `tex`/`up` exclusiva del menú con valores raros), S (scissor, `sci` fuera de rango), Ninguna (valores normales e iguales).
+
+**Resultado:**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Los valores de escala del motor son normales e idénticos en consola y Azahar: `scalemode=0 scalefactor=1.00 screen=400x240 client=400x240 twod=400x240` (`d_main.cpp:1292`, log consola línea 76 = log Azahar línea equivalente). | El menú aparece normal un instante y luego crece (`[MENU-DIAG]` se escribe una sola vez, `menuDiagDone = true` en `d_main.cpp:1289`; el cambio ocurre en el primer ciclo de dibujo tras la captura). | G: sin `far` en el log (`menudiag=0`, línea 46) para saber si hay vértices fuera de rango. T: sin líneas `tex`/`up` para comparar texturas del menú vs HUD. S: sin líneas `sci` para ver si el scissor está fuera de rango. Ninguna: no se puede descartar porque no hay datos detallados. |
+
+**Error:** `c3d-menu-diag.txt` no estaba en la SD de la consola; `Diag::MenuDiag` quedó en `false` (`c3d_diag.cpp:74`). No se registraron las marcas `[MENU]` detalladas. Solo `[MENU-DIAG]` básico (`d_main.cpp:1292`) que no distingue entre las hipótesis.
