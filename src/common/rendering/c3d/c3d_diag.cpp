@@ -36,7 +36,7 @@ static bool BeginOk = false;
 static int Arrays = 0, Elements = 0, NotSent = 0;
 static int DrawsDescribed = 0;
 
-// Menu diag: up to 3 menu frames and 3 HUD frames
+// Menu diag: up to 20 menu frames and 3 HUD frames
 static int MenuDiagMenuFrames = 0;
 static int MenuDiagHudFrames = 0;
 
@@ -128,9 +128,24 @@ bool WantDrawDetails()
 bool MenuDiagWantFrame()
 {
 	if (!MenuDiag) return false;
-	if (menuactive != MENU_Off && MenuDiagMenuFrames < 3) {
+	static int prevMenuActive = -1;
+	if (menuactive != MENU_Off && prevMenuActive == MENU_Off) {
+		MenuDiagMenuFrames = 0;
+	}
+	prevMenuActive = menuactive;
+	if (menuactive != MENU_Off && MenuDiagMenuFrames < 20) {
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[MENU] f%d state menu=%d gs=%d want=1\n", Frame, (int)menuactive, (int)gamestate);
+		N3DS_Log(buf);
+		N3DS_LogFlush();
 		MenuDiagMenuFrames++;
 		return true;
+	}
+	if (menuactive != MENU_Off) {
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[MENU] f%d state menu=%d gs=%d want=0\n", Frame, (int)menuactive, (int)gamestate);
+		N3DS_Log(buf);
+		N3DS_LogFlush();
 	}
 	if (gamestate == GS_LEVEL && menuactive == MENU_Off && MenuDiagHudFrames < 3) {
 		MenuDiagHudFrames++;
