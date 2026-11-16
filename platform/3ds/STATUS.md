@@ -24,10 +24,11 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 14. **`C3D_RenderTargetDelete` bloquea al cerrar desde HOME** cuando hay trabajo GPU pendiente (prueba 40). Sin dibujar tras `gameloop_abort` el cierre llega a `GameMain exit 0` pero crash post-main (PC=0, LR=2) (prueba 38B).
 15. **Cierre desde HOME arreglado:** sin dibujar tras `gameloop_abort` (prueba 41) y sin `romfsExit()` (prueba 42), el juego cierra completo: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `atexit` y vuelta al HOME Menu sin crash. `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib aún tenía FILE* abiertos a archivos .pk3 de romfs:, causando `_lseek_r` con FAR=0x18 (puntero nulo + offset de `seek_r`).
 13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
+14. **Menú: dos viewports alternan.** `Draw2D()` recibe `vp=640x400` (29 frames) y `vp=400x240` (15 frames). El 640x400 excede la pantalla 3DS (400x240) y `SetViewport()` calcula coordenadas negativas (`left = 400 - 0 - 640 = -240`, `c3d_renderstate.cpp:126-131`) que desplazan la geometría fuera de rango. `far=0` siempre. Todas las texturas normales (`canvas=0`, `xform=1`). El HUD usa correctamente `vp=400x240` (prueba 44).
 
 ## Pregunta abierta
 
-**¿Por qué el menú sale grande y repetido?** También pendiente: cierre lento y música del HOME cortándose al cerrar.
+**¿Por qué `Draw2D()` recibe `vp=640x400`?** El motor envía dos viewports alternados; el 640x400 excede la pantalla y la geometría se desplaza fuera de rango. La siguiente prueba debe investigar por qué ocurre y forzar el viewport a 400x240. También pendiente: cierre lento y música del HOME cortándose al cerrar.
 
 ## Registro de pruebas
 
@@ -68,63 +69,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 90 | ¿`romfsInit()` falla en Azahar? | ✅ RomFS funciona: `init=OK`, `pk3: YES`. `doom2.wad` está presente y `stat()` lo encuentra. El motor no lo reconoce como IWAD válido. |
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
 | 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ✅ S descartada (scissor siempre `n=1 min=0,0 max=240,400`, l.67–11813+). ❌ G y T sin datos: sin líneas `geo`/`tex` en el log. Valores de escala normales. |
-| 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | |
+| 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
 
-## Prueba 44
-
-**Lo que se pidió:** capturar datos de geometría (`[MENU] geo`) y textura (`[MENU] tex`) del menú para determinar por qué sale grande y repetido.
-- [x] Subir `MenuDiagMenuFrames` de 3 a 20 para cubrir frames tardíos del menú
-- [x] Resetear `MenuDiagMenuFrames` al cambiar `menuactive` de Off a On
-- [x] Añadir marca `[MENU] state` con `menuactive` y `gamestate` en cada llamada a `MenuDiagWantFrame()`
-
-**Pregunta:** ¿Las líneas `[MENU] geo` y `[MENU] tex` aparecen en el log con datos del menú?
-
-**Lo que ya sabemos (con la prueba que lo mostró):** punto 9 (menú grande y repetido en la consola, HUD y título bien); prueba 43 (S descartada, G y T sin datos porque no hubo líneas `geo`/`tex`).
-
-**Hipótesis A (contadores agotados):** `MenuDiagMenuFrames` se llenó en frames tempranos de arranque (antes del menú real) y los 3 cupos se agotaron.
-- Si A es cierta: `[MENU] state menu=On gs=... want=1` en frames altos; líneas `geo` y `tex` con `far=` y banderas de textura.
-**Hipótesis B (menú no pasa por Draw2D):** el menú se dibuja por otro camino o `menuactive` nunca es `On` cuando `Draw2D` corre.
-- Si B es cierta: `[MENU] state menu=Off` en todos los frames donde se llama `Draw2D`; sin líneas `geo`/`tex`.
-
-**Única variable que cambia:** `c3d_diag.cpp:40` (límite `MenuDiagMenuFrames`), `c3d_diag.cpp:128-140` (reset al cambiar estado y marca `state`).
-
-**Pasadas en la consola:**
-| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
-|---|---|---|
-| A | `c3d-menu-diag.txt` | Menú grande y repetido (como siempre) |
-
-**Marcadores que se quedan:** los de la pregunta abierta (diagnóstico del menú). **Marcadores que se quitan:** ninguno.
-
-**Cómo se compila:** `platform/3ds/docker-build-test.sh 44`.
-
-**Autocomprobación:**
-
-1. **Tabla de diferencias.** Si cambias un shader, compara **instrucción por instrucción**: qué lee cada una (constante, uniforme, registro temporal, entrada) y **qué componentes escribe** (`.xy` no es lo mismo que `.xyzw`). Cada diferencia es una fila. Para cada par de pasadas que vas a comparar, haz una tabla con **todo** lo que cambia entre ellas: shader, valores de los uniformes, vértices (coordenadas y z), atributos (cuántos, cuáles fijos y qué registro), estado (blend, depth, combinadores), textura y llamada de dibujo. Para llenarla, lee el código de los **dos caminos**, no solo el que escribiste. Si cambia más de una fila, la prueba no aísla una sola variable: o separas las filas en pasadas distintas, o la conclusión solo podrá nombrar el conjunto ("el shader o sus datos").
-   - Respuesta: No hay shader en juego. Lo que cambia entre la prueba 43 y la 44 es solo `c3d_diag.cpp`: límite `MenuDiagMenuFrames` 3→20, reset de contador al cambiar `menuactive`, y marca `state`. El camino de dibujo es el mismo.
-
-2. **¿Cada hipótesis predice algo distinto en el log?** Escribe la línea `[C3D]` concreta que saldría bajo cada una. Si dos hipótesis dan el mismo log, no las distingue esta prueba.
-   - Respuesta: A: `[MENU] state menu=On want=1` + líneas `geo`/`tex`. B: `[MENU] state menu=Off` en todos los frames. Distintos.
-
-3. **¿Lo que dices que se verá en pantalla puede verse?** Comprueba el color final con los datos reales: qué registro de entrada lee el shader y qué valor le llega. Un triángulo negro sobre fondo negro "no se ve" aunque funcione. Si la pantalla no es fiable, el criterio es el log.
-   - Respuesta: La pantalla no es fiable (el menú sigue grande). El criterio es el log.
-
-4. **¿Se resuelve en una sola compilación?** Si sabes de antemano que harán falta más pruebas para separar hipótesis ("para distinguir B de C haría falta la 28"), mete esas variantes **en esta**: un interruptor por variante, una pasada por variante. Cada compilación y cada ronda en la consola cuestan más que una pasada extra.
-   - Respuesta: Sí: una pasada con `c3d-menu-diag.txt`.
-
-5. **¿Cada afirmación sobre una API tiene su fuente** (archivo y línea en `~/work/refs/`, o `hechos-3ds.md`)? No basta con que la función exista: escribe **qué dice ese código que pasa** y cuándo (por ejemplo, "el gancho ONEXIT se llama en `aptExit`, después de `main`"), y saca tu predicción del log de ahí, no de lo que suena lógico.
-   - Respuesta: `MenuDiagWantFrame()` en `c3d_diag.cpp:128-140`; `MenuDiagMenuFrames` en `c3d_diag.cpp:40`. El gate de `[MENU] geo` es `MenuDiagWantFrame()` en `hw_draw2d.cpp:64`; el de `[MENU] tex` es el mismo en `hw_draw2d.cpp:231`.
-
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Busca la hipótesis que tu diseño no puede descartar porque esa fila de la tabla **nunca cambia** en ninguna pasada (por ejemplo, los datos del dibujo). Si la hay, añade una pasada que la cambie a ella sola, o escribe que esta prueba no la distingue.
-   - Respuesta: Si ambas fallan, la marca `state` muestra `menuactive` y `gamestate` en cada frame; eso dice si el problema es el contador o el camino de dibujo.
-
-7. **¿Puede Alex preparar cada pasada sin equivocarse?** Prefiere archivos de control vacíos con nombres distintos a archivos con contenido (un número dentro), que el Bloc de notas puede guardar con BOM o salto de línea.
-   - Respuesta: Un archivo vacío `c3d-menu-diag.txt`, igual que la 43.
-
-8. **¿Lo que vas a añadir ya existe?** Antes de crear una función, un archivo, un interruptor o una variable, busca su nombre: `grep -rn "nombre" src/` y mira si ese archivo se compila en la 3DS (`src/CMakeLists.txt`). Si ya existe, se modifica ahí (bajo `#ifdef __3DS__` si es código del motor); si defines otra, el enlazado falla.
-   - Respuesta: `MenuDiagWantFrame()` ya existe en `c3d_diag.cpp:128`; se modifica el mismo bloque.
-
-9. **¿Qué se ejecuta después de tu cambio?** Sigue el flujo desde tu cambio hasta que el resultado se vea (en pantalla o en el log): qué funciones corren después, si alguna dibuja, espera o escribe en la SD, y si el log sigue abierto. Si en ese camino algo puede colgarse, pon una marca antes de ese paso.
-   - Respuesta: `Draw2D()` → `MenuDiagWantFrame()` → escribir `[MENU] state` en log → si `want=1`, escribir `geo` y `tex`. El log sigue abierto (se cierra al salir).
 - **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
 - **Cierre lento:** medir con los T+ms del log cuánto tarda desde `gameloop_abort set` hasta la última marca (prueba 42: T+102341 a T+130166 = ~28 s, pero incluye tiempo hasta el suspend).
 - **Música del HOME:** se corta al cerrar el juego y tarda en volver (pruebas 41-42).
