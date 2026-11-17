@@ -127,7 +127,14 @@ namespace
 
 		static bool lastspecialUI = false;
 
+#ifdef __3DS__
+		// The top screen is 400x240 and the backend draws straight to it: there is no scaled
+		// presentation pass. With the 640x400 "special UI" minimum the menus were laid out for a
+		// screen larger than the real one and came out too big (tests 34, 44).
+		bool specialUI = false;
+#else
 		bool specialUI = (!sysCallbacks.IsSpecialUI || sysCallbacks.IsSpecialUI());
+#endif
 
 		if (specialUI == lastspecialUI)
 			return;

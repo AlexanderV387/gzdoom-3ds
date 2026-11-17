@@ -26,6 +26,32 @@ static size_t IndexRingPos = 0;
 static const size_t IndexRingSize = 512 * 1024;	// indices per frame
 
 static bool WarnedLines = false;
+static bool WarnedViewport = false;
+static bool WarnedCmdBuf = false;
+
+// The PICA200 takes unsigned viewport and scissor coordinates: a rectangle that leaves the
+// 240x400 frame buffer wraps around instead of being clipped (test 44: a 640x400 viewport
+// drew the menu enlarged and repeated on the console). Keep it inside.
+static bool ClampToFrameBuffer(int &left, int &top, int &right, int &bottom)
+{
+	const int l = left, t = top, r = right, b = bottom;
+	left = std::clamp(left, 0, 240);
+	right = std::clamp(right, left, 240);
+	top = std::clamp(top, 0, 400);
+	bottom = std::clamp(bottom, top, 400);
+	return l != left || t != top || r != right || b != bottom;
+}
+
+// citro3d's command buffer is one block per frame; libctru stops the program (svcBreak) when
+// it overflows (test 36: opening OPTIONS). A draw needs room for its state as well.
+static bool CommandBufferHasRoom()
+{
+	u32 size = 0, offset = 0;
+	GPUCMD_GetBuffer(nullptr, &size, &offset);
+	if (size - offset >= 2048) return true;
+	if (!WarnedCmdBuf) { WarnedCmdBuf = true; Printf("C3D: command buffer full, some draws of this frame are dropped\n"); }
+	return false;
+}
 
 // What SetupAttributes gave the GPU for the last draw (for the diagnostics).
 static uint64_t LastPermutation;
@@ -117,9 +143,11 @@ void C3DRenderState::SetScissor(int x, int y, int w, int h)
 	// Engine coordinates have their origin at the bottom left of the 400x240 screen; the top
 	// screen's frame buffer is 240x400, turned 90 degrees.
 	const int W = Get()->GetClientWidth();
-	C3D_SetScissor(GPU_SCISSOR_NORMAL, y, W - x - w, y + h, W - x);
+	int left = y, top = W - x - w, right = y + h, bottom = W - x;
+	ClampToFrameBuffer(left, top, right, bottom);
+	C3D_SetScissor(GPU_SCISSOR_NORMAL, left, top, right, bottom);
 #ifdef __3DS__
-	Diag::MenuDiagRecordScissor(y, W - x - w, y + h, W - x);
+	Diag::MenuDiagRecordScissor(left, top, right, bottom);
 #endif
 }
 
@@ -128,7 +156,23 @@ void C3DRenderState::SetViewport(int x, int y, int w, int h)
 	Get()->ScreenBegin();
 	if (Get()->IsFrameBlocked()) return;
 	const int W = Get()->GetClientWidth();
-	C3D_SetViewport(y, W - x - w, h, w);
+	// The 3D view of a game with the status bar reaches past the top of the screen on purpose
+	// (the engine relies on the window to cut it off) and the console draws it right. What the
+	// PICA200 cannot take is a negative origin: its registers are unsigned and the rectangle
+	// wraps around (test 44: a 640x400 viewport drew the menu enlarged and repeated).
+	int left = y, top = W - x - w, width = h, height = w;
+	if (left < 0 || top < 0)
+	{
+		if (!WarnedViewport)
+		{
+			WarnedViewport = true;
+			Printf("C3D: viewport %d,%d %dx%d starts outside the 400x240 screen, moved inside\n", x, y, w, h);
+		}
+		if (left < 0) { width += left; left = 0; }
+		if (top < 0) { height += top; top = 0; }
+	}
+	if (width < 1 || height < 1) return;
+	C3D_SetViewport(left, top, width, height);
 }
 
 void C3DRenderState::Clear(int targets)
@@ -567,7 +611,7 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "arrays" : "arrays(not sent)", dt, index, count, first, nullptr);
 	Diag::Draw(false, send);
-	if (send) C3D_DrawArrays(Primitive(dt), index, count);
+	if (send && CommandBufferHasRoom()) C3D_DrawArrays(Primitive(dt), index, count);
 }
 
 void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
@@ -597,7 +641,7 @@ void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "elements" : "elements(not sent)", dt, int(lo), count, first, dst);
 	Diag::Draw(true, send);
-	if (send) C3D_DrawElements(Primitive(dt), count, C3D_UNSIGNED_SHORT, dst);
+	if (send && CommandBufferHasRoom()) C3D_DrawElements(Primitive(dt), count, C3D_UNSIGNED_SHORT, dst);
 }
 
 } // namespace C3DRenderer

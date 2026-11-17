@@ -86,7 +86,9 @@ void RunDeferredFrees()
 C3DFrameBuffer::C3DFrameBuffer() : DFrameBuffer(400, 240)
 {
 	TheFrameBuffer = this;
-	C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+	// One buffer holds the commands of a whole frame. The default (256 KB) overflowed with the
+	// OPTIONS menu, where every character is a draw with its own state (test 36).
+	C3D_Init(4 * C3D_DEFAULT_CMDBUF_SIZE);
 	mTop = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
 	C3D_RenderTargetSetOutput(mTop, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 

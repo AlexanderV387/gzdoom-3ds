@@ -9,6 +9,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <3ds.h>
+#include <signal.h>
 
 #include <dirent.h>
 #include <locale.h>
@@ -110,6 +111,16 @@ void N3DS_LogFlush()
 {
 	if (LogFile == nullptr) return;
 	fflush(LogFile);
+	// Once the game is closing, the ~80 [EXIT] marks would each wait for the SD card; the
+	// file is closed, and so written, at the end of main. exit-diag.txt in the data folder
+	// brings the fsync back to find where a close stops.
+	extern volatile sig_atomic_t gameloop_abort;
+	static int exitDiag = -1;
+	if (gameloop_abort)
+	{
+		if (exitDiag < 0) { struct stat st; exitDiag = stat(N3DS_DATA_DIR "/exit-diag.txt", &st) == 0; }
+		if (!exitDiag) return;
+	}
 	fsync(fileno(LogFile));
 }
 

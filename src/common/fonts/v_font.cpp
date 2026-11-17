@@ -171,9 +171,11 @@ FFont *FontFromTTF(const FileSys::FolderEntry &f)
 {
 	FString fileName = f.name;
 #ifdef __3DS__
-	// The Chinese, Japanese and Korean fonts (2-8 MB each) build atlases of tens of megabytes:
-	// more than the 3DS has. The Latin ones (under 1 MB) are kept.
-	if (fileSystem.FileLength(f.lumpnum) > 1024 * 1024) return nullptr;
+	// No TrueType fonts on the 3DS. Each one rasterizes its whole character set into an atlas
+	// at start-up: the five Latin ones cost 6.5 MB of heap and about 3 s of loading in the
+	// emulator (test 46), and the Chinese, Japanese and Korean ones need tens of megabytes.
+	// The classic bitmap fonts of the engine and the game stay, and the menus look the same.
+	return nullptr;
 #endif
 	if (fileName.IndexOf(".ttf") > 0)
 	{
