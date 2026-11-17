@@ -3822,8 +3822,14 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 		StartWindow->Progress();
 		if (StartScreen) StartScreen->Progress(1);
 	}, CheckForHacks, InitBuildTiles);
+#ifdef __3DS__
+	Printf("  [load] textures added\n");
+#endif
 	PatchTextures();
 	TexAnim.Init();
+#ifdef __3DS__
+	Printf("  [load] textures patched, animations\n");
+#endif
 	G_AddBoomHelpScreens();
 	C_InitConback(TexMan.CheckForTexture(gameinfo.BorderFlat.GetChars(), ETextureType::Flat), true, 0.25);
 
@@ -3832,8 +3838,17 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	StartWindow->Progress();
 	if (StartScreen) StartScreen->Progress(1);
 	V_InitFonts();
+#ifdef __3DS__
+	Printf("  [load] fonts\n");
+#endif
 	InitDoomFonts();
+#ifdef __3DS__
+	Printf("  [load] game fonts\n");
+#endif
 	V_LoadTranslations();
+#ifdef __3DS__
+	Printf("  [load] translations\n");
+#endif
 	UpdateGenericUI(false);
 
 	// [CW] Parse any TEAMINFO lumps.

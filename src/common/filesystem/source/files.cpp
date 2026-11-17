@@ -84,6 +84,11 @@ public:
 	{
 		File = myfopen(filename, "rb");
 		if (File == nullptr) return false;
+#ifdef __3DS__
+		// Every read that misses the buffer is a call to the FS service; newlib's default
+		// buffer is 1 KB and the archives are read in many small pieces.
+		setvbuf(File, nullptr, _IOFBF, 64 * 1024);
+#endif
 		FilePos = startpos;
 		StartPos = startpos;
 		Length = CalcFileLen();

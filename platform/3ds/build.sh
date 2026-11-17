@@ -20,28 +20,33 @@ if [ -z "${SDL2_3DS:-}" ] && [ -f build-deps/sdl2-3ds-prefix/lib/libSDL2.a ]; th
 fi
 SDL2_3DS=${SDL2_3DS:-$DEVKITPRO/portlibs/3ds}
 JOBS=${JOBS:-$(nproc)}
-COMMON="-DZMUSIC_FLUIDSYNTH=OFF -DHAVE_VULKAN=OFF -DHAVE_GLES2=OFF -DNO_OPENAL=ON"
+COMMON="-DZMUSIC_FLUIDSYNTH=OFF -DHAVE_VULKAN=OFF -DHAVE_GLES2=OFF"
+# OpenAL Soft for the 3DS (NDSP): platform/3ds/build-openal-3ds.sh puts it in build-deps/.
+# Without it the engine is built without sound.
+if [ -f build-deps/openal-3ds-prefix/lib/libopenal.a ]; then
+	OPENAL_3DS="-DNO_OPENAL=OFF -DDYN_OPENAL=OFF -DOPENAL_INCLUDE_DIR=$PWD/build-deps/openal-3ds-prefix/include/AL -DOPENAL_LIBRARY=$PWD/build-deps/openal-3ds-prefix/lib/libopenal.a"
+else
+	OPENAL_3DS="-DNO_OPENAL=ON"
+fi
 
 # 1. Host tools (zipdir, lemon, re2c), once.
 if [ ! -f build-host/ImportExecutables.cmake ]; then
-	${SDL2_HOST:+env SDL2DIR=$SDL2_HOST} cmake -S . -B build-host -DCMAKE_BUILD_TYPE=Release -DNO_LIBVPX=ON $COMMON
+	${SDL2_HOST:+env SDL2DIR=$SDL2_HOST} cmake -S . -B build-host -DCMAKE_BUILD_TYPE=Release -DNO_LIBVPX=ON -DNO_OPENAL=ON $COMMON
 	cmake --build build-host --target zipdir lemon re2c -j"$JOBS"
 fi
 
 # 2. The 3DS build.
-if [ ! -f build-3ds/CMakeCache.txt ]; then
-	SDL2DIR=$SDL2_3DS cmake -S . -B build-3ds -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake" \
-		-DFORCE_CROSSCOMPILE=ON -DIMPORT_EXECUTABLES="$PWD/build-host/ImportExecutables.cmake" \
-		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF $COMMON
-fi
+# Configured every time: an existing build picks up a change of options (OpenAL).
+SDL2DIR=$SDL2_3DS cmake -S . -B build-3ds -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake" \
+	-DFORCE_CROSSCOMPILE=ON -DIMPORT_EXECUTABLES="$PWD/build-host/ImportExecutables.cmake" \
+	-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF $COMMON $OPENAL_3DS
 cmake --build build-3ds -j"$JOBS"
 
-# 3. Package: engine data in the RomFS, without the CJK dynamic fonts (too large for the 3DS).
+# 3. Package: engine data in the RomFS, without the TrueType fonts (not loaded on the 3DS).
 rm -rf build-3ds/romfs
 mkdir -p build-3ds/romfs/data
 cp build-3ds/uzdoom.pk3 build-3ds/game_support.pk3 build-3ds/romfs/data/
-zip -q -d build-3ds/romfs/data/uzdoom.pk3 'fonts/dynamic/IBM_Plex_Sans_JP/*' 'fonts/dynamic/IBM_Plex_Sans_KR/*' \
-	'fonts/dynamic/Kosugi_Maru/*' 'fonts/dynamic/ZCOOLQingKeHaungYou/*' 'ui/*' || true
+zip -q -d build-3ds/romfs/data/uzdoom.pk3 'fonts/dynamic/*' 'ui/*' || true
 "$DEVKITPRO/tools/bin/smdhtool" --create "UZDoom 3DS" "${N3DS_SMDH_DESC:-UZDoom for New 3DS (test build)}" "AlexanderV387" \
 	platform/3ds/icon-48.png build-3ds/uzdoom.smdh
 "$DEVKITPRO/tools/bin/3dsxtool" build-3ds/uzdoom.elf build-3ds/uzdoom.3dsx --smdh=build-3ds/uzdoom.smdh --romfs=build-3ds/romfs

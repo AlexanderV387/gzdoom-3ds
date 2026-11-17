@@ -23,4 +23,5 @@ exec docker run --rm -t --user "$(id -u):$(id -g)" -e HOME=/tmp -e FORCE -e JOBS
 		set -e
 		platform/3ds/build-host-sdl2.sh
 		platform/3ds/build-sdl2-3ds.sh
+		platform/3ds/build-openal-3ds.sh
 		SDL2_HOST=/src/build-deps/host-sdl2 platform/3ds/build-test.sh '$1'"

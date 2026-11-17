@@ -352,7 +352,11 @@ FIWadManager::FIWadManager(const char *firstfn, const char *optfn)
 	if (check.InitMultipleFiles(fns, &lfi, nullptr))
 	{
 		// this is for the IWAD picker. As we have a filesystem open here that contains the base files, it is the easiest place to load the strings early.
+#ifndef __3DS__
+		// Not on the 3DS: it has no IWAD picker, and parsing the 5 MB of language tables here
+		// took 10 s of the start-up (test 47); D_InitGame loads them again for the game.
 		GStrings.LoadStrings(check, language);
+#endif
 		int num = check.CheckNumForName("IWADINFO");
 		if (num >= 0)
 		{

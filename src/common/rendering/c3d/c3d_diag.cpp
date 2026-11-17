@@ -5,6 +5,7 @@
 ** 2026 AlexanderV387 (Nintendo 3DS port). GPL v3 (see LICENSE).
 */
 
+#include <algorithm>
 #include <stdarg.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -105,6 +106,29 @@ void FrameDone(bool drawn)
 		Line("frame %d: begin=%s retries=%d draws: arrays=%d elements=%d not_sent=%d%s",
 			Frame, BeginOk ? "ok" : "FAILED", BeginRetries, Arrays, Elements, NotSent,
 			drawn ? (Triangle ? " (test triangle)" : "") : " (skipped: no frame)");
+	}
+	// Every 5 seconds: frames, average and worst frame time, draws per frame, and where
+	// (gamestate, menu). One short line; the performance record of a session on the console.
+	{
+		static long long windowStart = -1, last = -1;
+		static int frames = 0, draws = 0, worst = 0;
+		const long long now = N3DS_ElapsedMs();
+		if (windowStart < 0) windowStart = last = now;
+		frames++;
+		draws += Arrays + Elements;
+		worst = std::max(worst, int(now - last));
+		last = now;
+		if (now - windowStart >= 5000)
+		{
+			char buf[160];
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d\n",
+				now, frames, double(now - windowStart) / frames, frames * 1000.0 / double(now - windowStart),
+				worst, draws / frames, int(gamestate), int(menuactive));
+			N3DS_Log(buf);
+			N3DS_LogFlush();
+			windowStart = now;
+			frames = draws = worst = 0;
+		}
 	}
 	Frame++;
 	Arrays = Elements = NotSent = 0;

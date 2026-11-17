@@ -1,0 +1,122 @@
+diff --git a/alc/backends/ndsp.cpp b/alc/backends/ndsp.cpp
+index ef1858d7..7a234411 100644
+--- a/alc/backends/ndsp.cpp
++++ b/alc/backends/ndsp.cpp
+@@ -60,6 +60,7 @@ struct NdspBackend final : BackendBase {
+ 
+     AlcNdspStream *mStream{nullptr};
+     unsigned mFrameStep{};
++    bool mNdspInitialized{false};
+ };
+ 
+ NdspBackend::~NdspBackend()
+@@ -67,6 +68,9 @@ NdspBackend::~NdspBackend()
+     if(mStream)
+         alcNdspClose(mStream);
+     mStream = nullptr;
++    if(mNdspInitialized)
++        alcNdspExit();
++    mNdspInitialized = false;
+ }
+ 
+ void NdspBackend::renderCallback(void *const userptr, short *const dst, unsigned const frames)
+@@ -89,6 +93,14 @@ void NdspBackend::open(std::string_view name)
+ 
+ auto NdspBackend::reset() -> bool
+ {
++    if(!mNdspInitialized)
++    {
++        if(!alcNdspInit())
++            throw al::backend_exception{al::backend_error::DeviceError,
++                "Failed to initialize NDSP (is the DSP firmware dumped?)"};
++        mNdspInitialized = true;
++    }
++
+     if(mStream)
+         alcNdspClose(mStream);
+     mStream = nullptr;
+@@ -135,11 +147,9 @@ auto NdspBackendFactory::getFactory() -> BackendFactory&
+ 
+ auto NdspBackendFactory::init() -> bool
+ {
+-    if(!alcNdspInit())
+-    {
+-        WARN("Failed to initialize NDSP (is the DSP firmware dumped?)");
+-        return false;
+-    }
++    // Initialization belongs to the backend lifetime. Leaving libctru's NDSP
++    // worker alive after the device was destroyed lets it run on a freed stack
++    // during process teardown.
+     return true;
+ }
+ 
+diff --git a/alc/backends/ndsp_driver.cpp b/alc/backends/ndsp_driver.cpp
+index ff1e4220..a66b4892 100644
+--- a/alc/backends/ndsp_driver.cpp
++++ b/alc/backends/ndsp_driver.cpp
+@@ -45,6 +45,9 @@ struct AlcNdspStream {
+     LightEvent mEvent{};
+     Thread mThread{nullptr};
+     std::atomic<bool> mKillNow{true};
++
++    u32 mPreviousCpuLimit{};
++    bool mRaisedCpuLimit{false};
+ };
+
+ namespace {
+@@ -155,11 +158,41 @@ void alcNdspStart(AlcNdspStream *const stream)
+
+     s32 prio{0x30};
+     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+-    stream->mThread = threadCreate(mixerThreadEntry, stream, 32*1024, prio-1, -1, false);
++
++    int core{-1};
++    u32 previousCpuLimit{};
++    if(R_SUCCEEDED(APT_GetAppCpuTimeLimit(&previousCpuLimit)))
++    {
++        stream->mPreviousCpuLimit = previousCpuLimit;
++        if(previousCpuLimit >= 30)
++            core = 1;
++        else if(R_SUCCEEDED(APT_SetAppCpuTimeLimit(30)))
++        {
++            stream->mRaisedCpuLimit = true;
++            core = 1;
++        }
++    }
++
++    stream->mThread = threadCreate(mixerThreadEntry, stream, 32*1024, prio-1, core, false);
++    if(!stream->mThread && core == 1)
++    {
++        if(stream->mRaisedCpuLimit)
++        {
++            APT_SetAppCpuTimeLimit(stream->mPreviousCpuLimit);
++            stream->mRaisedCpuLimit = false;
++        }
++        stream->mThread = threadCreate(mixerThreadEntry, stream, 32*1024, prio-1, -1, false);
++    }
++
+     if(!stream->mThread)
+     {
+         stream->mKillNow.store(true, std::memory_order_release);
+         ndspSetCallback(nullptr, nullptr);
++        if(stream->mRaisedCpuLimit)
++        {
++            APT_SetAppCpuTimeLimit(stream->mPreviousCpuLimit);
++            stream->mRaisedCpuLimit = false;
++        }
+     }
+ }
+
+@@ -175,6 +208,12 @@ void alcNdspStop(AlcNdspStream *const stream)
+
+     ndspSetCallback(nullptr, nullptr);
+     ndspChnWaveBufClear(NdspChannelId);
++
++    if(stream->mRaisedCpuLimit)
++    {
++        APT_SetAppCpuTimeLimit(stream->mPreviousCpuLimit);
++        stream->mRaisedCpuLimit = false;
++    }
+ }
+
+ void alcNdspClose(AlcNdspStream *const stream)
