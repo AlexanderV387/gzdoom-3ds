@@ -735,3 +735,32 @@ Crash: data abort en `_lseek_r`, llamado desde `__libc_lock_release`. La direcci
 | Frame 924 (transición gameplay): `geo min=-160,164 max=800,400`, `d2d vp=640x400`, cmds=27. Frame 951 (HUD): `geo min=-88,0 max=488,240`, `d2d vp=400x240`, cmds=35. El HUD usa el viewport correcto. | | |
 
 **Veredicto:** El menú se dibuja con dos viewports alternados (400x240 y 640x400). El 640x400 excede la pantalla 3DS (400x240) y su geometría se desplaza fuera de rango. Geometría con `far > 0` y texturas especiales se descartan como causas. La siguiente prueba debe investigar por qué `Draw2D()` recibe `vp=640x400` y forzar el viewport a 400x240.
+
+---
+
+## Prueba 47
+
+**Pregunta:** ¿Forzar viewport a 400x240, agrandar búfer GPU, quitar TrueType y sin fsync al cerrar arregla menú, OPTIONS, cierre y música del HOME?
+
+**Cambios:** `r_videoscale` sin mínimo especial para "special UI" (viewport guard en `SetViewport()`), búfer de comandos GPU 4x más grande en `c3d_framebuffer.cpp` con salto de dibujo si se llena, fuentes TrueType desactivadas, sin `fsync` en cada `[EXIT]` marca al cerrar.
+
+**Resultado:**
+
+| Demostrado | Probable | Sin datos |
+|---|---|---|
+| Menú se ve normal: `vp=400x240` en `[MENU-DIAG]` (l.71); `r_videoscale` sin mínimo especial + viewport guard en `SetViewport()` evita el 640x400 | | |
+| OPTIONS abre sin crash (Alex): búfer de comandos GPU 4x más grande en `c3d_framebuffer.cpp` y salto de dibujo si se llena | | El búfer 4x es suficiente para cualquier pantalla del juego; cuánto consume en pantallas complejas (no se mide) |
+| Cierre desde HOME completo: todas las marcas `[EXIT]` presentes hasta `atexit callback` (l.84-87), `GameMain exit 0` en T+136149 | Sin `fsync` por marca al cerrar, el cierre es más rápido (~34 s vs ~28 s prueba 42, pero incluye el suspend de APT en ambos) | Cuánto del tiempo de cierre es del juego vs del sistema APT |
+| Música del HOME no se corta al cerrar (Alex) | | Los cambios de la 47 reducen la ocupación de recursos del sistema |
+| Sin crash (l.87: cierre limpio) | | |
+| Carga ~94.4 s (l.49: `Init complete` T+94432). `Texman.Init` ~49 s (T+33231 a T+82006, l.30-31, 52%). Script parsing 6.7 s (l.33). | | `Texman.Init` sigue siendo el cuello de botella; qué hace dentro que tarda ~49 s |
+| FluidSynth falla (l.55: T+94652), fallback a ADL | | Sin sonido porque ADL no se inicializa correctamente; si NDSP se inicializa (sin marcas en log) |
+| Bajones de FPS en partida (Alex) | | La carga de texturas o recursos durante el gameplay causa picos; sin marcas de tiempo por frame en el log para identificar el momento exacto |
+
+- **Carga lenta:** ~94 s (prueba 47), `Texman.Init` ~49 s (52%).
+- **Bajones de FPS:** Alex los reporta en partida; sin marcas de tiempo de frame en el log.
+- **Sin sonido:** FluidSynth falló (T+94652, l.55), fallback a ADL; sin marcas NDSP/SDL audio init en log.
+- Una línea del log tiene texto de otro idioma pegado antes de `Selecting OpenGL backend...`.
+- Líneas y puntos (automapa), niebla, luz, portales, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
+
+**Veredicto:** Menú, OPTIONS, cierre y música del HOME resueltos. Quedan abiertos: carga lenta (~94 s, `Texman.Init` ~49 s), bajones de FPS en partida y sin sonido (FluidSynth falló, fallback a ADL sin confirmar que funcione).

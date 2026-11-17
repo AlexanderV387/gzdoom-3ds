@@ -24,11 +24,14 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 14. **`C3D_RenderTargetDelete` bloquea al cerrar desde HOME** cuando hay trabajo GPU pendiente (prueba 40). Sin dibujar tras `gameloop_abort` el cierre llega a `GameMain exit 0` pero crash post-main (PC=0, LR=2) (prueba 38B).
 15. **Cierre desde HOME arreglado:** sin dibujar tras `gameloop_abort` (prueba 41) y sin `romfsExit()` (prueba 42), el juego cierra completo: `D_Cleanup()`, post-cleanup, `SDL_Quit`, `gfxExit`, `atexit` y vuelta al HOME Menu sin crash. `romfsExit()` desregistraba el devoptab de "romfs:" mientras Newlib aún tenía FILE* abiertos a archivos .pk3 de romfs:, causando `_lseek_r` con FAR=0x18 (puntero nulo + offset de `seek_r`).
 13. El automapa no dibuja líneas: el backend aún no dibuja líneas ni puntos.
-14. **Menú: dos viewports alternan.** `Draw2D()` recibe `vp=640x400` (29 frames) y `vp=400x240` (15 frames). El 640x400 excede la pantalla 3DS (400x240) y `SetViewport()` calcula coordenadas negativas (`left = 400 - 0 - 640 = -240`, `c3d_renderstate.cpp:126-131`) que desplazan la geometría fuera de rango. `far=0` siempre. Todas las texturas normales (`canvas=0`, `xform=1`). El HUD usa correctamente `vp=400x240` (prueba 44).
+14. **Menú: dos viewports alternan.** `Draw2D()` recibía `vp=640x400` (29 frames) y `vp=400x240` (15 frames). El 640x400 venía de `r_videoscale` forzando un mínimo de 640x400 para "special UI". Arreglado en la 47: viewport guard en `SetViewport()` y `r_videoscale` sin mínimo especial. Ahora el menú usa `vp=400x240` (prueba 47, l.71).
+15. **OPTIONS y búfer de comandos GPU:** el crash (`svcBreak` en `GPUCMD_AddInternal`) era por búfer pequeño. Arreglado en la 47: búfer 4x más grande y salto de dibujo si se llena (prueba 47, Alex confirma OPTIONS abre sin crash).
+16. **Cierre más rápido:** sin `fsync` en cada `[EXIT]` marca al cerrar, el cierre es más rápido (~34 s sin fsync vs ~28 s con fsync prueba 42, pero incluye el suspend de APT). El cierre completo funciona (prueba 47, l.84-87).
+17. **Música del HOME:** no se corta al cerrar con los cambios de la 47 (Alex).
 
 ## Pregunta abierta
 
-**¿Por qué `Draw2D()` recibe `vp=640x400`?** El motor envía dos viewports alternados; el 640x400 excede la pantalla y la geometría se desplaza fuera de rango. La siguiente prueba debe investigar por qué ocurre y forzar el viewport a 400x240. También pendiente: cierre lento y música del HOME cortándose al cerrar.
+**¿Por qué la carga tarda ~94 s?** `Texman.Init` es el cuello de botella (~49 s, 52%). Las fuentes TrueType están desactivadas (prueba 47). También pendiente: bajones de FPS en partida y sin sonido (FluidSynth falló, fallback a ADL en l.55).
 
 ## Registro de pruebas
 
@@ -71,9 +74,3 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ✅ S descartada (scissor siempre `n=1 min=0,0 max=240,400`, l.67–11813+). ❌ G y T sin datos: sin líneas `geo`/`tex` en el log. Valores de escala normales. |
 | 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
 
-- **OPTIONS:** el búfer de comandos de la GPU se llena (punto 10). Archivos en `~/work/3ds-ports/pruebas/37/crash-options-*`.
-- **Cierre lento:** medir con los T+ms del log cuánto tarda desde `gameloop_abort set` hasta la última marca (prueba 42: T+102341 a T+130166 = ~28 s, pero incluye tiempo hasta el suspend).
-- **Música del HOME:** se corta al cerrar el juego y tarda en volver (pruebas 41-42).
-- Una línea del log tiene texto de otro idioma pegado antes de `Selecting OpenGL backend...`.
-- Líneas y puntos (automapa), niebla, luz, portales, sonido, pantalla de abajo, `.cia` (unique ID 0xF3D5C).
-- Las fuentes TrueType latinas generan atlas de 1 MB con todo el juego de caracteres: lento y caro en memoria. Recortarlo cuando el resto funcione.
