@@ -78,7 +78,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 ## Prueba 49
 
 **Lo que se pidió:**
-- [x] Arreglar `snd_backend` atado a "null": si el ini tiene "null" y no hay marcador `n3ds_snd_fixed`, forzar "openal" (i_sound.cpp:258-262).
+- [x] Arreglar `snd_backend` atado a "null": en 3DS, si es "null", ignorarlo y usar OpenAL siempre (i_sound.cpp:258-262). Sin marcador.
 - [x] `gl_precache` por defecto `true` en 3DS (hw_cvars.cpp:138). El backend ya tiene `PrecacheMaterial` (c3d_framebuffer.cpp:483).
 - [x] `vid_fps` por defecto `true` en 3DS (i_interface.cpp:58).
 
@@ -97,7 +97,7 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 - El log se corta antes de `Init complete` o hay crash.
 
 **Única variable que cambia:** tres archivos del motor bajo `#ifdef __3DS__`:
-1. `i_sound.cpp:258-262`: si `snd_backend` es "null" y no existe `sdmc:/3ds/gzdoom/snd_fixed.txt`, forzar `"openal"` y crear el archivo. Así el jugador puede volver a desactivar el sonido borrando el archivo.
+1. `i_sound.cpp:258-262`: en 3DS saltar el chequeo `"null"` e inicializar OpenAL siempre (sin marcador).
 2. `hw_cvars.cpp:138`: `gl_precache` default `true` en 3DS.
 3. `i_interface.cpp:58`: `vid_fps` default `true` en 3DS.
 

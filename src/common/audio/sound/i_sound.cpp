@@ -256,11 +256,14 @@ void I_InitSound ()
 	}
 
 	// Keep it simple: let everything except "null" init the sound.
+	// On 3DS, sound is always needed; ignore "null" from builds without OpenAL.
+#if !defined(__3DS__)
 	if (stricmp(snd_backend, "null") == 0)
 	{
 		GSnd = new NullSoundRenderer;
 	}
 	else
+#endif
 	{
 		#ifndef NO_OPENAL
 			if (IsOpenALPresent())
