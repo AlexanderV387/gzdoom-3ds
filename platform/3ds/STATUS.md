@@ -73,4 +73,51 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
 | 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ✅ S descartada (scissor siempre `n=1 min=0,0 max=240,400`, l.67–11813+). ❌ G y T sin datos: sin líneas `geo`/`tex` en el log. Valores de escala normales. |
 | 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
+| 49 | Mejoras de rendimiento y UX | Pendiente. |
+
+## Prueba 49
+
+**Lo que se pidió:**
+- [x] Arreglar `snd_backend` atado a "null": si el ini tiene "null" y no hay marcador `n3ds_snd_fixed`, forzar "openal" (i_sound.cpp:258-262).
+- [x] `gl_precache` por defecto `true` en 3DS (hw_cvars.cpp:138). El backend ya tiene `PrecacheMaterial` (c3d_framebuffer.cpp:483).
+- [x] `vid_fps` por defecto `true` en 3DS (i_interface.cpp:58).
+
+**Pregunta:** ¿Las tres mejoras funcionan sin romper el arranque ni el gameplay?
+
+**Lo que ya sabemos:**
+- S17: carga ~97 s, Texman.Init ~52 s. La 48 bajó a 19 s / 4.6 s respectivamente.
+- La 48 sin sonido porque `snd_backend=null` se guardó en ini (CVAR_ARCHIVE, i_sound.cpp:63).
+- OpenAL Soft ya se compila con la 48 (build.sh:26-29, `NO_OPENAL=OFF`).
+- `PrecacheMaterial` existe en c3d_framebuffer.cpp:483.
+- `I_InitSound()` (i_sound.cpp:244) lee `snd_backend` ya cargado del ini.
+
+**Hipótesis A:** Las tres mejoras funcionan y el juego arranca y se juega con sonido, precache activo y FPS visible.
+- El log mostrará: `S_Init: Setting up sound.` (d_main.cpp:3722) seguido de `Texman.Init done` y `Init complete` sin crash. FPS visible arriba a la derecha (d_main.cpp:1061). Sonido al jugar MAP01.
+**Hipótesis B:** Algo rompe el arranque.
+- El log se corta antes de `Init complete` o hay crash.
+
+**Única variable que cambia:** tres archivos del motor bajo `#ifdef __3DS__`:
+1. `i_sound.cpp:258-262`: si `snd_backend` es "null" y no existe `sdmc:/3ds/gzdoom/snd_fixed.txt`, forzar `"openal"` y crear el archivo. Así el jugador puede volver a desactivar el sonido borrando el archivo.
+2. `hw_cvars.cpp:138`: `gl_precache` default `true` en 3DS.
+3. `i_interface.cpp:58`: `vid_fps` default `true` en 3DS.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | FPS visible arriba a la derecha; sonido al jugar MAP01 |
+
+**Marcadores que se quedan:** los de la pregunta abierta (~94 s de carga). **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 49`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** No hay pasadas comparativas (una sola pasada A). Los tres cambios son defaults bajo `#ifdef __3DS__`; no hay shader ni estado GPU que comparar instrucción a instrucción.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra logs completos hasta `Init complete` y gameplay; B se corta antes o da crash.
+3. **¿Lo que dices que se verá en pantalla puede verse?** El FPS counter (`vid_fps`) dibuja texto blanco arriba a la derecha (d_main.cpp:1061). El sonido se oye al disparar/pisar. Precache es interno pero acelera la carga.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A con los tres cambios activos. Si uno falla, el log lo muestra.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `snd_backend` en i_sound.cpp:63 (CVAR), `I_InitSound` en i_sound.cpp:244, `gl_precache` en hw_cvars.cpp:138, `vid_fps` en i_interface.cpp:58, `PrecacheMaterial` en c3d_framebuffer.cpp:483, FPS draw en d_main.cpp:1061.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Con una sola pasada, si hay crash se sabe que algo rompió (B). Si funciona, A se confirma. No hay fila que "nunca cambia".
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `snd_backend`, `gl_precache` y `vid_fps` son CVARs existentes modificados con `#ifdef __3DS__`. No se crea función ni variable nueva. El marcador `snd_fixed.txt` es un archivo simple en la SD.
+9. **¿Qué se ejecuta después de tu cambio?** `I_InitSound()` (i_sound.cpp:244) usa `snd_backend` para elegir el renderer. `gl_precache` se lee en hw_precache.cpp:260 al cargar texturas. `vid_fps` se lee cada frame en d_main.cpp:1052 para dibujar el HUD. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
