@@ -229,7 +229,11 @@ class OpenALSoundStream : public SoundStream
 	ALenum Format;
 	ALsizei FrameSize;
 
+#ifdef __3DS__
+	static const int BufferCount = 8;
+#else
 	static const int BufferCount = 4;
+#endif
 	ALuint Buffers[BufferCount];
 	ALuint Source;
 
@@ -922,6 +926,18 @@ OpenALSoundRenderer::~OpenALSoundRenderer()
 	if(!Device)
 		return;
 
+	#ifdef __3DS__
+	if(StreamThread != nullptr)
+	{
+		std::unique_lock<std::mutex> lock(StreamLock);
+		QuitThread.store(true);
+		lock.unlock();
+		StreamWake.notify_all();
+		threadJoin(StreamThread, U64_MAX);
+		threadFree(StreamThread);
+		StreamThread = nullptr;
+	}
+	#else
 	if(StreamThread.joinable())
 	{
 		std::unique_lock<std::mutex> lock(StreamLock);
@@ -930,6 +946,7 @@ OpenALSoundRenderer::~OpenALSoundRenderer()
 		StreamWake.notify_all();
 		StreamThread.join();
 	}
+	#endif
 
 	while(Streams.Size() > 0)
 		delete Streams[0];
@@ -984,6 +1001,13 @@ void OpenALSoundRenderer::BackgroundProc()
 		}
 	}
 }
+
+#ifdef __3DS__
+void OpenALSoundRenderer::BackgroundProc3DS(void *userdata)
+{
+	static_cast<OpenALSoundRenderer *>(userdata)->BackgroundProc();
+}
+#endif
 
 void OpenALSoundRenderer::AddStream(OpenALSoundStream *stream)
 {
@@ -1263,8 +1287,37 @@ void OpenALSoundRenderer::UnloadSound(SoundHandle sfx)
 
 SoundStream *OpenALSoundRenderer::CreateStream(SoundStreamCallback callback, int buffbytes, SampleType stype, ChannelConfig chans, int samplerate, void *userdata)
 {
+	#ifdef __3DS__
+	if(StreamThread == nullptr)
+	{
+		constexpr size_t StreamThreadStackBytes = 64 * 1024;
+		s32 priority = 0x30;
+		if(R_FAILED(svcGetThreadPriority(&priority, CUR_THREAD_HANDLE)))
+			priority = 0x30;
+		priority = clamp<s32>(priority, 0x18, 0x3e);
+
+		StreamThread = threadCreate(BackgroundProc3DS, this,
+			StreamThreadStackBytes, priority, 1, false);
+		if(StreamThread == nullptr)
+		{
+			StreamThread = threadCreate(BackgroundProc3DS, this,
+				StreamThreadStackBytes, priority, 0, false);
+		}
+		if(StreamThread == nullptr)
+		{
+			Printf(TEXTCOLOR_RED"Unable to create the 3DS music stream thread.\n");
+			return NULL;
+		}
+		u32 core;
+		s32 pri;
+		svcGetThreadPriority(&pri, THREAD_HANDLE(StreamThread));
+		core = (u32)threadGetCore(StreamThread);
+		Printf("[AUDIO] StreamThread core=%d pri=0x%02x\n", core, pri);
+	}
+	#else
 	if(StreamThread.get_id() == std::thread::id())
 		StreamThread = std::thread(std::mem_fn(&OpenALSoundRenderer::BackgroundProc), this);
+	#endif
 	OpenALSoundStream *stream = new OpenALSoundStream(this);
 	if (!stream->Init(callback, buffbytes, stype, chans, samplerate, userdata))
 	{

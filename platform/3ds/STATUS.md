@@ -73,7 +73,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 91 | ¿Dónde falla el reconocimiento del IWAD en Azahar? | ❌ Ninguna hipótesis acertó. `beforefilter count=0`: candidatos vacíos antes del filtro. Pista: `iwadparm=(null)`. S12: en Azahar `argc=0`, `-iwad` queda en la posición 0 de Args, `FArgs::CheckParm` busca desde la 1 y no lo ve. |
 | 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ✅ S descartada (scissor siempre `n=1 min=0,0 max=240,400`, l.67–11813+). ❌ G y T sin datos: sin líneas `geo`/`tex` en el log. Valores de escala normales. |
 | 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
-| 49 | Mejoras de rendimiento y UX | Pendiente. |
+| 49 | Mejoras de rendimiento y UX | ✅ Tres cambios funcionales. Pendiente: congelamientos con ADL. |
+| 50 | Música en núcleo 1 | Pendiente. |
 
 ## Prueba 49
 
@@ -120,4 +121,54 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
 8. **¿Lo que vas a añadir ya existe?** `snd_backend`, `gl_precache` y `vid_fps` son CVARs existentes modificados con `#ifdef __3DS__`. No se crea función ni variable nueva. El marcador `snd_fixed.txt` es un archivo simple en la SD.
 9. **¿Qué se ejecuta después de tu cambio?** `I_InitSound()` (i_sound.cpp:244) usa `snd_backend` para elegir el renderer. `gl_precache` se lee en hw_precache.cpp:260 al cargar texturas. `vid_fps` se lee cada frame en d_main.cpp:1052 para dibujar el HUD. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
+## Prueba 50
+
+**Lo que se pidió:**
+- [ ] Trasladar a UZDoom el arreglo del port de Legend of Doom para el hilo de música (hecho H4): en `CreateStream`, bajo `#ifdef __3DS__`, crear `StreamThread` con `threadCreate` en núcleo 1, pila 64 KB, prioridad del hilo principal limitada a [0x18, 0x3E]; fallback a núcleo 0 con misma prioridad.
+- [ ] `BufferCount = 8` en la 3DS (en vez de 4, oalsound.cpp:232).
+- [ ] Línea de log al crear el hilo: en qué núcleo y con qué prioridad quedó (hecho H5).
+- [ ] Añadir `#include <3ds.h>` bajo `#ifdef __3DS__` en oalsound.h para que `Thread` compile.
+- [ ] Nada más en esta prueba.
+
+**Pregunta:** ¿Trasladar el hilo de música al núcleo 1 con prioridad corregida elimina los congelamientos de 2-8 s con ADL?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- H1: `std::thread` crea hilos en núcleo 0 con prioridad 0x3F (la más baja). Prueba 49: congelamientos 2-8 s con ADL.
+- H3: ADL sintetiza música en `StreamThread` (oalsound.cpp:1267); con `std::thread` el hilo se estrella contra el núcleo 0 cargado.
+- H4: Legend of Doom lo resolvió con `threadCreate` en núcleo 1 (main: oalsound.cpp:1320-1355).
+- H5: No sabemos si `.3dsx` concede núcleo 1; hay que loguearlo.
+- snd_mididevice=-7 selecciona ADL directamente (music.cpp:479).
+
+**Hipótesis A:** El arreglo funciona. La música va al núcleo 1 con prioridad corregida, sin competir con el juego.
+- El log mostrará: `I_InitSound: Initializing OpenAL` y `Init complete`, luego `[AUDIO] StreamThread core=N pri=0xXX` al arrancar la música (N=1 si concede, N=0 si fallback). Sin congelamientos en 5 min de partida.
+**Hipótesis B:** El arreglo no elimina los congelamientos o rompe el arranque.
+- El log se corta antes de `Init complete` (crash en crear el hilo) o hay congelamientos 2-8 s como en la 49.
+
+**Única variable que cambia:** `src/common/audio/sound/oalsound.h` y `oalsound.cpp`, bajo `#ifdef __3DS__`:
+1. oalsound.h:190: `Thread StreamThread = nullptr` (libctru) en vez de `std::thread`.
+2. oalsound.cpp:925-931 (destructor): `threadJoin`/`threadFree` en vez de `.joinable()`/`.join()`.
+3. oalsound.cpp:968+: wrapper C `BackgroundProc3DS` para que `threadCreate` llame al método C++ `BackgroundProc`.
+4. oalsound.cpp:1264-1275 (`CreateStream`): `threadCreate` en núcleo 1 con fallback a núcleo 0, más log `[AUDIO] StreamThread core=N pri=0xXX`.
+5. oalsound.cpp:232: `BufferCount = 8` en vez de 4.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | `snd_mididevice=-7` en el ini | Música sin congelamientos en MAP01-MAP02; log con `[AUDIO] StreamThread core=N pri=0xXX` |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 50`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** No hay pasadas comparativas (una sola pasada A). El cambio es cómo se crea y gestiona el hilo: `std::thread` → `threadCreate` (libctru) en núcleo 1, fallback núcleo 0, `threadJoin`/`threadFree` en destructor. BufferCount 4 → 8.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra log completo con `[AUDIO] StreamThread` y sin congelamientos; B muestra crash o congelamientos como la 49. Si `threadCreate` falla en ambos núcleos, el log muestra `Unable to create the 3DS music stream thread` y no hay música.
+3. **¿Lo que dices que se verá en pantalla puede verse?** La música se oye al entrar en MAP01. Sin congelamientos = gameplay fluido. El criterio es el log y la experiencia de Alex.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A. Si hay congelamientos, la causa es otra.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `threadCreate` en libctru thread.h:51, `threadJoin`/`threadFree` en libctru, prioridad en H1, núcleo 1 en H4/H5, ADL en music.cpp:479, `BufferCount` en oalsound.cpp:232, wrapper en main: oalsound.cpp:1009-1013.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Con una pasada, si hay crash → B (algo rompió). Si hay congelamientos → B (el arreglo no basta). Si `threadCreate` falla → H5 confirmado (`.3dsx` no concede núcleo 1 ni 0 con esa prioridad). Si funciona → A confirmada.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, solo `snd_mididevice=-7` en el ini.
+8. **¿Lo que vas a añadir ya existe?** `threadCreate`, `threadJoin`, `threadFree` son de libctru. `StreamThread` es variable existente en oalsound.h:190, solo cambia el tipo. `BackgroundProc3DS` es una función nueva (wrapper C) importada de la rama main (oalsound.cpp:1009). `BufferCount` es variable existente en oalsound.cpp:232.
+9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar el reproductor de música. `BackgroundProc` corre en el hilo nuevo (llamado por `BackgroundProc3DS`). El destructor usa `threadJoin`/`threadFree` al cerrar. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
