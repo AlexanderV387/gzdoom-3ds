@@ -125,11 +125,11 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 ## Prueba 50
 
 **Lo que se pidió:**
-- [ ] Trasladar a UZDoom el arreglo del port de Legend of Doom para el hilo de música (hecho H4): en `CreateStream`, bajo `#ifdef __3DS__`, crear `StreamThread` con `threadCreate` en núcleo 1, pila 64 KB, prioridad del hilo principal limitada a [0x18, 0x3E]; fallback a núcleo 0 con misma prioridad.
-- [ ] `BufferCount = 8` en la 3DS (en vez de 4, oalsound.cpp:232).
-- [ ] Línea de log al crear el hilo: en qué núcleo y con qué prioridad quedó (hecho H5).
-- [ ] Añadir `#include <3ds.h>` bajo `#ifdef __3DS__` en oalsound.h para que `Thread` compile.
-- [ ] Nada más en esta prueba.
+- [x] Trasladar a UZDoom el arreglo del port de Legend of Doom para el hilo de música (hecho H4): en `CreateStream`, bajo `#ifdef __3DS__`, crear `StreamThread` con `threadCreate` en núcleo 1, pila 64 KB, prioridad del hilo principal limitada a [0x18, 0x3E]; fallback a núcleo 0 con misma prioridad.
+- [x] `BufferCount = 8` en la 3DS (en vez de 4, oalsound.cpp:232).
+- [x] Línea de log al crear el hilo: en qué núcleo y con qué prioridad quedó (hecho H5).
+- [x] Añadir `#include <3ds.h>` bajo `#ifdef __3DS__` en oalsound.h para que `Thread` compile.
+- [x] Nada más en esta prueba.
 
 **Pregunta:** ¿Trasladar el hilo de música al núcleo 1 con prioridad corregida elimina los congelamientos de 2-8 s con ADL?
 
