@@ -74,7 +74,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 43 | ¿El menú manda a la GPU algo distinto que el HUD (geometría, textura, scissor)? | ✅ S descartada (scissor siempre `n=1 min=0,0 max=240,400`, l.67–11813+). ❌ G y T sin datos: sin líneas `geo`/`tex` en el log. Valores de escala normales. |
 | 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
 | 49 | Mejoras de rendimiento y UX | ✅ Tres cambios funcionales. Pendiente: congelamientos con ADL. |
-| 50 | Música en núcleo 1 | Pendiente. |
+| 50 | Música en núcleo 1 | ✅ Sin congelamientos, pero la música se corta (núcleo 1 da ~30 % CPU). Log: `[AUDIO] StreamThread core=1 pri=0x30`. |
+| 51 | Música en núcleo 2 | Pendiente. |
 
 ## Prueba 49
 
@@ -171,4 +172,45 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, solo `snd_mididevice=-7` en el ini.
 8. **¿Lo que vas a añadir ya existe?** `threadCreate`, `threadJoin`, `threadFree` son de libctru. `StreamThread` es variable existente en oalsound.h:190, solo cambia el tipo. `BackgroundProc3DS` es una función nueva (wrapper C) importada de la rama main (oalsound.cpp:1009). `BufferCount` es variable existente en oalsound.cpp:232.
 9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar el reproductor de música. `BackgroundProc` corre en el hilo nuevo (llamado por `BackgroundProc3DS`). El destructor usa `threadJoin`/`threadFree` al cerrar. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
+## Prueba 51
+
+**Lo que se pidió:**
+- [x] Cambiar el orden de núcleos del hilo de música: primero núcleo 2 (New 3DS), si falla núcleo 1, si falla núcleo 0.
+- [x] El log debe seguir mostrando en qué núcleo quedó el hilo.
+- [x] Nada más en esta prueba.
+
+**Pregunta:** ¿Usar el núcleo 2 para el hilo de música elimina los cortes de música con OPL?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- H6: el núcleo 2 funciona en `.3dsx` y da CPU completa; el núcleo 1 da ~30 % y corta la música (prueba 50).
+- Prueba 50: sin congelamientos en núcleo 1, pero la música se corta (log `[AUDIO] StreamThread core=1 pri=0x30`).
+- H2: `threadCreate` acepta núcleo 2 si el exheader lo permite (thread.h:20-44).
+
+**Hipótesis A:** El núcleo 2 acepta el hilo y la música suena sin cortes.
+- El log mostrará: `[AUDIO] StreamThread core=2 pri=0x30`. Música continua en MAP01-MAP02.
+**Hipótesis B:** El núcleo 2 no acepta el hilo y hace fallback al núcleo 1 o 0.
+- El log mostrará: `[AUDIO] StreamThread core=1 pri=0x30` o `core=0 pri=0x30`. Con núcleo 1 la música corta (~30 % CPU, prueba 50). Con núcleo 0 la música puede funcionar (CPU completa) pero compite con el hilo del juego.
+
+**Única variable que cambia:** `src/common/audio/sound/oalsound.cpp`, función `CreateStream` (l.1299-1305): el primer `threadCreate` pasa `2` en vez de `1` para el núcleo.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | `snd_mididevice=-3` en el ini | Música continua sin cortes en MAP01-MAP02; log con `[AUDIO] StreamThread core=N pri=0xXX` |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 51`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola pasada A. El único cambio es el orden de núcleos en `threadCreate`: primer intento pasa `2` (en vez de `1`), segundo `1`, tercero `0`. Prioridad, pila y resto del código iguales.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `core=2`, B muestra `core=1` o `core=0`. La experiencia de Alex confirma si hay cortes o no.
+3. **¿Lo que dices que se verá en pantalla puede verse?** La música continua sin cortes se oye en MAP01-MAP02. El criterio principal es el log (`core=2`) y la experiencia de Alex.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A. Si `core=2` y no hay cortes → A. Si falla y cae a `core=1` → B.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `threadCreate(func, arg, pila, prio, nucleo, detached)` en libctru thread.h:20-44 (H2): acepta el núcleo como parámetro; si el exheader no lo concede devuelve `nullptr`. Se llama desde `CreateStream` (oalsound.cpp:1299) al iniciar la música. H6 confirma que el núcleo 2 funciona en `.3dsx` y da el orden 2→1→0. El código actual ya hace fallback núcleo 1 → 0; solo cambia el primer intento a núcleo 2.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si `core=2` y hay cortes → otra causa. Si `core=1`/`0` → núcleo 2 no concedido. Si crash → algo rompió.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, solo `snd_mididevice=-3` en el ini.
+8. **¿Lo que vas a añadir ya existe?** `threadCreate` es la misma llamada de la prueba 50, solo cambia el parámetro del núcleo. No se crea función ni variable nueva.
+9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar la música. `BackgroundProc` corre en el hilo del núcleo asignado. El destructor usa `threadJoin`/`threadFree`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
