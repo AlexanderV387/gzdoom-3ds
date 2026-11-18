@@ -176,8 +176,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 ## Prueba 51
 
 **Lo que se pidió:**
-- [x] Cambiar el orden de núcleos del hilo de música: primero núcleo 2 (New 3DS), si falla núcleo 1, si falla núcleo 0.
-- [x] El log debe seguir mostrando en qué núcleo quedó el hilo.
+- [x] Cambiar el orden de núcleos del hilo de música: primero núcleo 2 (New 3DS), si falla llamar `APT_SetAppCpuTimeLimit(80)` y probar núcleo 1, si falla núcleo 0.
+- [x] El log debe mostrar el núcleo, la prioridad y el CPU limit: `[AUDIO] StreamThread core=N pri=0xXX cpulimit=NN` (leído con `APT_GetAppCpuTimeLimit`).
 - [x] Nada más en esta prueba.
 
 **Pregunta:** ¿Usar el núcleo 2 para el hilo de música elimina los cortes de música con OPL?
@@ -186,31 +186,32 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 - H6: el núcleo 2 funciona en `.3dsx` y da CPU completa; el núcleo 1 da ~30 % y corta la música (prueba 50).
 - Prueba 50: sin congelamientos en núcleo 1, pero la música se corta (log `[AUDIO] StreamThread core=1 pri=0x30`).
 - H2: `threadCreate` acepta núcleo 2 si el exheader lo permite (thread.h:20-44).
+- `APT_SetAppCpuTimeLimit` sube el tiempo del núcleo 1 (services/apt.h:515, wolf4sdl-3ds patrón).
 
 **Hipótesis A:** El núcleo 2 acepta el hilo y la música suena sin cortes.
-- El log mostrará: `[AUDIO] StreamThread core=2 pri=0x30`. Música continua en MAP01-MAP02.
-**Hipótesis B:** El núcleo 2 no acepta el hilo y hace fallback al núcleo 1 o 0.
-- El log mostrará: `[AUDIO] StreamThread core=1 pri=0x30` o `core=0 pri=0x30`. Con núcleo 1 la música corta (~30 % CPU, prueba 50). Con núcleo 0 la música puede funcionar (CPU completa) pero compite con el hilo del juego.
+- El log mostrará: `[AUDIO] StreamThread core=2 pri=0x30 cpulimit=NN`. Música continua en MAP01-MAP02.
+**Hipótesis B:** El núcleo 2 no acepta el hilo y hace fallback al núcleo 1 (con `cpulimit=80`) o 0.
+- El log mostrará: `[AUDIO] StreamThread core=1 pri=0x30 cpulimit=80` o `core=0`. Con núcleo 1 y 80 % la música mejora pero puede seguir cortando; con núcleo 0 compite con el juego.
 
-**Única variable que cambia:** `src/common/audio/sound/oalsound.cpp`, función `CreateStream` (l.1299-1305): el primer `threadCreate` pasa `2` en vez de `1` para el núcleo.
+**Única variable que cambia:** `src/common/audio/sound/oalsound.cpp`, función `CreateStream` (l.1299-1315): primer `threadCreate` con núcleo `2`, `APT_SetAppCpuTimeLimit(80)` si falla, y `cpulimit` en el log.
 
 **Pasadas en la consola:**
 | Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
 |---|---|---|
-| A | `snd_mididevice=-3` en el ini | Música continua sin cortes en MAP01-MAP02; log con `[AUDIO] StreamThread core=N pri=0xXX` |
+| A | `snd_mididevice=-3` en el ini | Música continua sin cortes en MAP01-MAP02; log con `[AUDIO] StreamThread core=N pri=0xXX cpulimit=NN` |
 
 **Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 51`.
 
 **Autocomprobación:**
-1. **Tabla de diferencias.** Una sola pasada A. El único cambio es el orden de núcleos en `threadCreate`: primer intento pasa `2` (en vez de `1`), segundo `1`, tercero `0`. Prioridad, pila y resto del código iguales.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `core=2`, B muestra `core=1` o `core=0`. La experiencia de Alex confirma si hay cortes o no.
+1. **Tabla de diferencias.** Una sola pasada A. Cambios en `CreateStream`: primer intento núcleo `2` (en vez de `1`), `APT_SetAppCpuTimeLimit(80)` si falla el núcleo 2, fallback núcleo 1 → 0. El log añade `cpulimit=NN` leído con `APT_GetAppCpuTimeLimit`. Prioridad y pila iguales.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `core=2`, B muestra `core=1 cpulimit=80` o `core=0`. La experiencia de Alex confirma si hay cortes.
 3. **¿Lo que dices que se verá en pantalla puede verse?** La música continua sin cortes se oye en MAP01-MAP02. El criterio principal es el log (`core=2`) y la experiencia de Alex.
-4. **¿Se resuelve en una sola compilación?** Sí: una pasada A. Si `core=2` y no hay cortes → A. Si falla y cae a `core=1` → B.
-5. **¿Cada afirmación sobre una API tiene su fuente?** `threadCreate(func, arg, pila, prio, nucleo, detached)` en libctru thread.h:20-44 (H2): acepta el núcleo como parámetro; si el exheader no lo concede devuelve `nullptr`. Se llama desde `CreateStream` (oalsound.cpp:1299) al iniciar la música. H6 confirma que el núcleo 2 funciona en `.3dsx` y da el orden 2→1→0. El código actual ya hace fallback núcleo 1 → 0; solo cambia el primer intento a núcleo 2.
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si `core=2` y hay cortes → otra causa. Si `core=1`/`0` → núcleo 2 no concedido. Si crash → algo rompió.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A. Si `core=2` y no hay cortes → A. Si falla y cae a `core=1` con `cpulimit=80` → B.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `threadCreate(func, arg, pila, prio, nucleo, detached)` en libctru thread.h:20-44 (H2): acepta el núcleo como parámetro; si el exheader no lo concede devuelve `nullptr`. `APT_SetAppCpuTimeLimit(u32 percent)` en services/apt.h:515, se llama si el núcleo 2 falla. `APT_GetAppCpuTimeLimit(u32 *percent)` en services/apt.h:521, se lee al final para el log. Se llama desde `CreateStream` (oalsound.cpp:1299) al iniciar la música. H6 confirma que el núcleo 2 funciona en `.3dsx` y da el orden 2→1→0.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si `core=2` y hay cortes → otra causa. Si `core=1` con `cpulimit=80` y mejora → el 80 % ayuda pero no basta. Si `core=0` → núcleo 2 no concedido ni 1 con 80%. Si crash → algo rompió.
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, solo `snd_mididevice=-3` en el ini.
-8. **¿Lo que vas a añadir ya existe?** `threadCreate` es la misma llamada de la prueba 50, solo cambia el parámetro del núcleo. No se crea función ni variable nueva.
+8. **¿Lo que vas a añadir ya existe?** `threadCreate` es la misma llamada de la prueba 50. `APT_SetAppCpuTimeLimit` y `APT_GetAppCpuTimeLimit` son de libctru (`<3ds.h>` ya incluido en oalsound.h:29). No se crea función ni variable nueva.
 9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar la música. `BackgroundProc` corre en el hilo del núcleo asignado. El destructor usa `threadJoin`/`threadFree`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 

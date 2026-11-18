@@ -1297,7 +1297,13 @@ SoundStream *OpenALSoundRenderer::CreateStream(SoundStreamCallback callback, int
 		priority = clamp<s32>(priority, 0x18, 0x3e);
 
 		StreamThread = threadCreate(BackgroundProc3DS, this,
-			StreamThreadStackBytes, priority, 1, false);
+			StreamThreadStackBytes, priority, 2, false);
+		if(StreamThread == nullptr)
+		{
+			APT_SetAppCpuTimeLimit(80);
+			StreamThread = threadCreate(BackgroundProc3DS, this,
+				StreamThreadStackBytes, priority, 1, false);
+		}
 		if(StreamThread == nullptr)
 		{
 			StreamThread = threadCreate(BackgroundProc3DS, this,
@@ -1310,9 +1316,11 @@ SoundStream *OpenALSoundRenderer::CreateStream(SoundStreamCallback callback, int
 		}
 		s32 core;
 		s32 pri;
+		u32 cpulimit = 0;
 		svcGetThreadPriority(&pri, threadGetHandle(StreamThread));
 		svcGetThreadIdealProcessor(&core, threadGetHandle(StreamThread));
-		Printf("[AUDIO] StreamThread core=%d pri=0x%02x\n", core, pri);
+		APT_GetAppCpuTimeLimit(&cpulimit);
+		Printf("[AUDIO] StreamThread core=%d pri=0x%02x cpulimit=%u\n", core, pri, cpulimit);
 	}
 	#else
 	if(StreamThread.get_id() == std::thread::id())
