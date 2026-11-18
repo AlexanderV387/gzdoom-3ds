@@ -1308,10 +1308,10 @@ SoundStream *OpenALSoundRenderer::CreateStream(SoundStreamCallback callback, int
 			Printf(TEXTCOLOR_RED"Unable to create the 3DS music stream thread.\n");
 			return NULL;
 		}
-		u32 core;
+		s32 core;
 		s32 pri;
-		svcGetThreadPriority(&pri, THREAD_HANDLE(StreamThread));
-		core = (u32)threadGetCore(StreamThread);
+		svcGetThreadPriority(&pri, threadGetHandle(StreamThread));
+		svcGetThreadIdealProcessor(&core, threadGetHandle(StreamThread));
 		Printf("[AUDIO] StreamThread core=%d pri=0x%02x\n", core, pri);
 	}
 	#else
