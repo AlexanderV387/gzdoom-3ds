@@ -1277,7 +1277,7 @@ void D_Display ()
 	cycles.Reset();
 	cycles.Clock();
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Scene3D, svcGetSystemTick());
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Scene3D);
 #endif
 
 	r_UseVanillaTransparency = UseVanillaTransparency(); // [SP] Cache UseVanillaTransparency() call
@@ -1470,6 +1470,9 @@ void D_Display ()
 				C_DrawConsole ();
 				M_Drawer ();
 				End2DAndUpdate ();
+#ifdef __3DS__
+				C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Scene3D);
+#endif
 				return;
 
 			case GS_DEMOSCREEN:
@@ -1573,13 +1576,13 @@ void D_Display ()
 		if (wipestart != nullptr) wipestart->DecRef();
 		wipestart = nullptr;
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Scene3D, svcGetSystemTick());
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_HUD2D, svcGetSystemTick());
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Scene3D);
+		C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_HUD2D);
 #endif
 		DrawOverlays();
 		End2DAndUpdate ();
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_HUD2D, svcGetSystemTick());
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_HUD2D);
 #endif
 	}
 	else

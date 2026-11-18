@@ -44,12 +44,11 @@ static int MenuDiagHudFrames = 0;
 // Per-frame timing breakdown (test 52): 6 categories measured with svcGetSystemTick (268.1 MHz)
 // TC_Logic: game tics, TC_Scene3D: 3D CPU prep, TC_HUD2D: HUD/2D rendering,
 // TC_GPUWait: FrameBegin retries + FrameEnd, TC_Texture: texture uploads, TC_Music: S_ChangeMusic
-static unsigned long long TimingLast[TC_COUNT] = { 0 };
+static unsigned long long TimingBeginTicks[TC_COUNT] = { 0 }; // 0 means no begin yet this frame
 static unsigned long long TimingFrame[TC_COUNT] = { 0 };
 static unsigned long long TimingWorst[TC_COUNT] = { 0 };
 static unsigned long long TimingWindow[TC_COUNT] = { 0 };
-static int TimingTexCount = 0;
-static int TimingTexWindow = 0;
+static int TimingTexWindow = 0; // texture upload count per window
 
 static bool Exists(const char *name)
 {
@@ -166,16 +165,26 @@ void FrameDone(bool drawn)
 	}
 }
 
-void TimingMark(int category, unsigned long long ticks)
+void TimingBegin(int category)
 {
 	if (category < 0 || category >= TC_COUNT) return;
-	if (TimingLast[category] > 0)
+	TimingBeginTicks[category] = svcGetSystemTick();
+}
+
+void TimingEnd(int category)
+{
+	if (category < 0 || category >= TC_COUNT) return;
+	if (TimingBeginTicks[category] > 0)
 	{
-		unsigned long long delta = ticks - TimingLast[category];
+		unsigned long long delta = svcGetSystemTick() - TimingBeginTicks[category];
 		TimingFrame[category] += delta;
 		TimingWindow[category] += delta;
+		TimingBeginTicks[category] = 0;
 	}
-	TimingLast[category] = ticks;
+	if (category == TC_Texture)
+	{
+		TimingTexWindow++;
+	}
 }
 
 void Draw(bool indexed, bool sent)

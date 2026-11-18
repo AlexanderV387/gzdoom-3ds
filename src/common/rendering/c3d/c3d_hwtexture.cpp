@@ -62,8 +62,12 @@ uint8_t *C3DHardwareTexture::MapBuffer()
 
 unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int h, int texunit, bool mipmap, const char *name)
 {
-	Diag::TimingMark(Diag::TC_Texture, svcGetSystemTick());
-	if (w <= 0 || h <= 0) return 0;
+	Diag::TimingBegin(Diag::TC_Texture);
+	if (w <= 0 || h <= 0)
+	{
+		Diag::TimingEnd(Diag::TC_Texture);
+		return 0;
+	}
 	if (buffer == nullptr)
 	{
 		if (mStaging.Size() >= (unsigned)(w * h * 4)) buffer = mStaging.Data();
@@ -81,6 +85,7 @@ unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int
 		if (!C3D_TexInit(&mTex, pw, ph, GPU_RGBA8))
 		{
 			Printf("C3D: no memory for a %dx%d texture (%s)\n", pw, ph, name ? name : "");
+			Diag::TimingEnd(Diag::TC_Texture);
 			return 0;
 		}
 		mCreated = true;
@@ -116,7 +121,7 @@ unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int
 		}
 	}
 	C3D_TexFlush(&mTex);
-	Diag::TimingMark(Diag::TC_Texture, svcGetSystemTick());
+	Diag::TimingEnd(Diag::TC_Texture);
 	return 1;
 }
 

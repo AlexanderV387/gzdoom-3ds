@@ -47,9 +47,10 @@ bool MenuDiagWantFrame();						// true if this Draw2D frame should be logged for
 void MenuDiagRecordScissor(int l, int t, int r, int b);	// record one scissor call
 bool MenuDiagEmitScissor();						// log scissor summary for current frame, returns true if logged
 
-// Per-frame timing breakdown (test 52): call at category boundaries with svcGetSystemTick value
+// Per-frame timing breakdown (test 52): measure elapsed time per category per frame
 enum TimingCategory { TC_Logic = 0, TC_Scene3D, TC_HUD2D, TC_GPUWait, TC_Texture, TC_Music, TC_COUNT };
-void TimingMark(int category, unsigned long long ticks);
+void TimingBegin(int category);	// mark start: stores svcGetSystemTick() internally
+void TimingEnd(int category);	// mark end: adds elapsed ticks if begin was called, then clears
 
 }
 }

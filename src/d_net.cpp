@@ -2194,7 +2194,7 @@ static void CalculateNetStabilityBuffer(int diff)
 void TryRunTics()
 {
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Logic, svcGetSystemTick());
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Logic);
 #endif
 	GC::CheckGC();
 
@@ -2352,7 +2352,7 @@ void TryRunTics()
 	S_UpdateSounds(players[consoleplayer].camera, primaryLevel->LocalWorldTimer - min<int>(primaryLevel->LocalWorldTimer, worldTimer));
 	NetworkEntityManager::VerifyPredictedEntities();
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Logic, svcGetSystemTick());
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Logic);
 #endif
 }
 

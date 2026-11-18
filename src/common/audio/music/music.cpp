@@ -740,13 +740,13 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 
 	// opening the music must be done by the game because it's different depending on the game's file system use.
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Music);
 #endif
 	FileReader reader = OpenMusic(musicname);
 	if (!reader.isOpen())
 	{
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Music);
 #endif
 		return false;
 	}
@@ -764,7 +764,7 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 		mus_playing.baseorder = order;
 		mus_playing.LastSong = musicname;
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Music);
 #endif
 		return true;
 	}
@@ -814,18 +814,21 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 		if (!S_StartMusicPlaying(mus_playing.handle, looping, 1.f, order))
 		{
 			Printf("Unable to start %s: %s\n", mus_playing.name.GetChars(), ZMusic_GetLastError());
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Music);
+#endif
 			return false;
 		}
 
 		S_CreateStream();
 		mus_playing.baseorder = order;
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Music);
 #endif
 		return true;
 	}
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Music);
 #endif
 	return false;
 }
