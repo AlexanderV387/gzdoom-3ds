@@ -123,6 +123,7 @@
 #include <sys/stat.h>
 #include "platform_3ds.h"
 #include "r_videoscale.h"
+#include "common/rendering/c3d/c3d_diag.h"
 #endif
 
 #ifdef __unix__
@@ -1275,6 +1276,9 @@ void D_Display ()
 
 	cycles.Reset();
 	cycles.Clock();
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Scene3D, svcGetSystemTick());
+#endif
 
 	r_UseVanillaTransparency = UseVanillaTransparency(); // [SP] Cache UseVanillaTransparency() call
 	r_renderercaps = GetCaps(); // [SP] Get the current capabilities of the renderer
@@ -1568,8 +1572,15 @@ void D_Display ()
 	{
 		if (wipestart != nullptr) wipestart->DecRef();
 		wipestart = nullptr;
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Scene3D, svcGetSystemTick());
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_HUD2D, svcGetSystemTick());
+#endif
 		DrawOverlays();
 		End2DAndUpdate ();
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_HUD2D, svcGetSystemTick());
+#endif
 	}
 	else
 	{

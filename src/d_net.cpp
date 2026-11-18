@@ -58,6 +58,10 @@
 #include "version.h"
 #include "vm.h"
 
+#ifdef __3DS__
+#include "common/rendering/c3d/c3d_diag.h"
+#endif
+
 void P_RunClientSideLogic();
 
 EXTERN_CVAR (Int, disableautosave)
@@ -2189,6 +2193,9 @@ static void CalculateNetStabilityBuffer(int diff)
 //
 void TryRunTics()
 {
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Logic, svcGetSystemTick());
+#endif
 	GC::CheckGC();
 
 	if (ToggleFullscreen)
@@ -2344,6 +2351,9 @@ void TryRunTics()
 	// since it should only go up otherwise.
 	S_UpdateSounds(players[consoleplayer].camera, primaryLevel->LocalWorldTimer - min<int>(primaryLevel->LocalWorldTimer, worldTimer));
 	NetworkEntityManager::VerifyPredictedEntities();
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Logic, svcGetSystemTick());
+#endif
 }
 
 void Net_NewClientTic()

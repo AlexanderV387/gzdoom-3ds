@@ -37,6 +37,10 @@
 #include "s_music.h"
 #include "filereadermusicinterface.h"
 #include <zmusic.h>
+
+#ifdef __3DS__
+#include "common/rendering/c3d/c3d_diag.h"
+#endif
 #include "md5.h"
 #include "gain_analysis.h"
 #include "i_specialpaths.h"
@@ -735,8 +739,17 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 	}
 
 	// opening the music must be done by the game because it's different depending on the game's file system use.
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+#endif
 	FileReader reader = OpenMusic(musicname);
-	if (!reader.isOpen()) return false;
+	if (!reader.isOpen())
+	{
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+#endif
+		return false;
+	}
 	auto m = reader.Read();
 	reader.Seek(0, FileReader::SeekSet);
 
@@ -750,6 +763,9 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 		mus_playing.name = musicname;
 		mus_playing.baseorder = order;
 		mus_playing.LastSong = musicname;
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+#endif
 		return true;
 	}
 
@@ -803,8 +819,14 @@ bool S_ChangeMusic(const char* musicname, int order, bool looping, bool force)
 
 		S_CreateStream();
 		mus_playing.baseorder = order;
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+#endif
 		return true;
 	}
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingMark(C3DRenderer::Diag::TC_Music, svcGetSystemTick());
+#endif
 	return false;
 }
 

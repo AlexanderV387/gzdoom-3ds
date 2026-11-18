@@ -41,6 +41,16 @@ static int DrawsDescribed = 0;
 static int MenuDiagMenuFrames = 0;
 static int MenuDiagHudFrames = 0;
 
+// Per-frame timing breakdown (test 52): 6 categories measured with svcGetSystemTick (268.1 MHz)
+// TC_Logic: game tics, TC_Scene3D: 3D CPU prep, TC_HUD2D: HUD/2D rendering,
+// TC_GPUWait: FrameBegin retries + FrameEnd, TC_Texture: texture uploads, TC_Music: S_ChangeMusic
+static unsigned long long TimingLast[TC_COUNT] = { 0 };
+static unsigned long long TimingFrame[TC_COUNT] = { 0 };
+static unsigned long long TimingWorst[TC_COUNT] = { 0 };
+static unsigned long long TimingWindow[TC_COUNT] = { 0 };
+static int TimingTexCount = 0;
+static int TimingTexWindow = 0;
+
 static bool Exists(const char *name)
 {
 	char path[128];
@@ -120,12 +130,28 @@ void FrameDone(bool drawn)
 		last = now;
 		if (now - windowStart >= 5000)
 		{
-			char buf[160];
-			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d\n",
+			char buf[384];
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f\n",
 				now, frames, double(now - windowStart) / frames, frames * 1000.0 / double(now - windowStart),
-				worst, draws / frames, int(gamestate), int(menuactive));
+				worst, draws / frames, int(gamestate), int(menuactive),
+				double(TimingWindow[TC_Logic]) / double(frames) / 268.1,
+				double(TimingWorst[TC_Logic]) / 268.1,
+				double(TimingWindow[TC_Scene3D]) / double(frames) / 268.1,
+				double(TimingWorst[TC_Scene3D]) / 268.1,
+				double(TimingWindow[TC_HUD2D]) / double(frames) / 268.1,
+				double(TimingWorst[TC_HUD2D]) / 268.1,
+				double(TimingWindow[TC_GPUWait]) / double(frames) / 268.1,
+				double(TimingWorst[TC_GPUWait]) / 268.1,
+				TimingTexWindow,
+				double(TimingWindow[TC_Texture]) / double(frames) / 268.1,
+				double(TimingWorst[TC_Texture]) / 268.1,
+				double(TimingWindow[TC_Music]) / double(frames) / 268.1,
+				double(TimingWorst[TC_Music]) / 268.1);
 			N3DS_Log(buf);
 			N3DS_LogFlush();
+			// Reset window accumulators
+			for (int i = 0; i < TC_COUNT; i++) TimingWindow[i] = 0;
+			TimingTexWindow = 0;
 			windowStart = now;
 			frames = draws = worst = 0;
 		}
@@ -133,6 +159,23 @@ void FrameDone(bool drawn)
 	Frame++;
 	Arrays = Elements = NotSent = 0;
 	BeginRetries = 0;
+	// Reset per-frame timing: promote frame totals to worst-case, then clear
+	for (int i = 0; i < TC_COUNT; i++) {
+		if (TimingFrame[i] > TimingWorst[i]) TimingWorst[i] = TimingFrame[i];
+		TimingFrame[i] = 0;
+	}
+}
+
+void TimingMark(int category, unsigned long long ticks)
+{
+	if (category < 0 || category >= TC_COUNT) return;
+	if (TimingLast[category] > 0)
+	{
+		unsigned long long delta = ticks - TimingLast[category];
+		TimingFrame[category] += delta;
+		TimingWindow[category] += delta;
+	}
+	TimingLast[category] = ticks;
 }
 
 void Draw(bool indexed, bool sent)

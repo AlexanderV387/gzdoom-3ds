@@ -75,7 +75,8 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 44 | ¿Capturamos `geo`/`tex` del menú subiendo límites y reseteando contadores? | ✅ Datos capturados (44 d2d, 44 geo, 252 tex). Dos viewports alternan: 400x240 y 640x400. Geometría excede 400x240 en ambos. far=0 siempre. Scissor cambia de portrait a landscape. |
 | 49 | Mejoras de rendimiento y UX | ✅ Tres cambios funcionales. Pendiente: congelamientos con ADL. |
 | 50 | Música en núcleo 1 | ✅ Sin congelamientos, pero la música se corta (núcleo 1 da ~30 % CPU). Log: `[AUDIO] StreamThread core=1 pri=0x30`. |
-| 51 | Música en núcleo 2 | Pendiente. |
+| 51 | Música en núcleo 2 | ✅ Música continua sin cortes en núcleo 2 (hecho H7). |
+| 52 | Tiempos por categoría por imagen | Pendiente. |
 
 ## Prueba 49
 
@@ -172,6 +173,58 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, solo `snd_mididevice=-7` en el ini.
 8. **¿Lo que vas a añadir ya existe?** `threadCreate`, `threadJoin`, `threadFree` son de libctru. `StreamThread` es variable existente en oalsound.h:190, solo cambia el tipo. `BackgroundProc3DS` es una función nueva (wrapper C) importada de la rama main (oalsound.cpp:1009). `BufferCount` es variable existente en oalsound.cpp:232.
 9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar el reproductor de música. `BackgroundProc` corre en el hilo nuevo (llamado por `BackgroundProc3DS`). El destructor usa `threadJoin`/`threadFree` al cerrar. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
+## Prueba 52
+
+**Lo que se pidió:**
+- [x] Medir dónde se va el tiempo de cada imagen con `svcGetSystemTick` (268.1 MHz, libctru os.h:16-17, SYSCLOCK_ARM11).
+- [x] Añadir al `[FPS]` de c3d_diag.cpp la media y el peor caso de 6 categorías:
+  1. Lógica del juego (tics: `TryRunTics` en d_net.cpp:2190 → `G_Ticker` en g_game.cpp:1245 → `P_Ticker` en p_tick.cpp:168).
+  2. Preparar escena 3D en CPU (`D_Display` en d_main.cpp:1256, renderizador hw antes de mandar dibujos).
+  3. HUD y 2D (`DrawOverlays` en d_main.cpp:1092, `End2DAndUpdate` en d_main.cpp:1109 → `screen->Update()` en c3d_framebuffer.cpp:401).
+  4. Espera GPU en `C3D_FrameBegin` (c3d_framebuffer.cpp:188-218): tiempo total en FrameBegin incluyendo reintentos; FrameBegin con NONBLOCK no espera pero los retries sí consumen tiempo cuando la GPU está saturada.
+  5. Subidas de texturas: cuántas y cuánto tardan (`C3DHardwareTexture::CreateTexture` en c3d_hwtexture.cpp:63, `C3D_TexFlush` en c3d_hwtexture.cpp:117).
+  6. Cambio de música (`S_ChangeMusic` en music.cpp:680).
+- [x] No cambiar nada más.
+
+**Pregunta:** ¿Los tiempos por categoría identifican qué parte hace que cada imagen tarde >16,7 ms y limite a 30-35 fps?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Punto 16: logs fiables con `fsync` tras cada marca.
+- Punto 17: carga ~97 s, Texman.Init ~52 s.
+- FPS oscilan entre 30 y 35, promedio 33,4 ms/imagen (Alex).
+- ~65 draws/imagen → 49-55 fps; ~100 draws → 30 fps.
+- `svcGetSystemTick` a 26,8 MHz (libctru os.h:16).
+- H7: música en núcleo 2, continua, sin cortes.
+
+**Hipótesis A:** El tiempo extra viene de la GPU (espera en `FrameBegin`/`FrameEnd`) cuando hay muchos draws.
+- El log `[FPS]` mostrará: media GPU >5 ms, peor caso GPU >16,7 ms, correlacionado con draws/imagen altos.
+**Hipótesis B:** El tiempo extra viene de la CPU (lógica del juego o preparar escena 3D).
+- El log `[FPS]` mostrará: media lógica o escena >5 ms, peor caso >16,7 ms.
+**Hipótesis C:** El tiempo extra viene de texturas nuevas subidas cada imagen.
+- El log `[FPS]` mostrará: texturas/subida significativas (>1 ms media), correlacionado con bajones de fps.
+
+**Única variable que cambia:** `src/common/rendering/c3d/c3d_diag.h` y `c3d_diag.cpp`: variables de timing con `svcGetSystemTick`, funciones hook para marcar inicio/fin de cada categoría, y extensión de la línea `[FPS]` para mostrar medias y peores casos. Ganchos inyectados bajo `#ifdef __3DS__` en d_net.cpp, d_main.cpp, c3d_framebuffer.cpp, c3d_hwtexture.cpp y music.cpp.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Jugar MAP01-MAP02 5 min; log con `[FPS]` extendido mostrando tiempos por categoría |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 52`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** No hay pasadas comparativas (una sola pasada A). Se añaden mediciones de timing con `svcGetSystemTick` en 6 categorías; no se cambia comportamiento, solo se mide.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra GPU como categoría más costosa (>16,7 ms worst), B muestra lógica/escena como más costosa, C muestra texturas como más costosa.
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: línea `[FPS]` extendida con tiempos por categoría. La pantalla muestra gameplay normal.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A con 5 min de gameplay en MAP01-MAP02. Los datos del log identifican la categoría más costosa.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `svcGetSystemTick` en libctru svc.h:1149, reloj a 26,8 MHz en os.h:16. `TryRunTics` en d_net.cpp:2190, `G_Ticker` en g_game.cpp:1245, `P_Ticker` en p_tick.cpp:168, `D_Display` en d_main.cpp:1256, `DrawOverlays` en d_main.cpp:1092, `End2DAndUpdate` en d_main.cpp:1109, `C3D_FrameBegin` en c3d_framebuffer.cpp:188, `C3D_FrameEnd` en c3d_framebuffer.cpp:463, `CreateTexture` en c3d_hwtexture.cpp:63, `C3D_TexFlush` en c3d_hwtexture.cpp:117, `S_ChangeMusic` en music.cpp:680.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si ninguna categoría supera significativamente >16,7 ms en worst, el cuello de botella está en otra parte no medida (overhead del motor, sincronización, o la suma de varias categorías). Si GPU domina → A. Si lógica/escena → B. Si texturas → C.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `svcGetSystemTick` es de libctru. `c3d_diag.h`/`.cpp` son archivos existentes del port. Las funciones hook son nuevas pero en namespace `C3DRenderer::Diag`, consistente con el patrón existente. Las variables de timing son estáticas en c3d_diag.cpp.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: los hooks marcan inicio/fin de cada categoría, el `[FPS]` acumula y muestra medias/peores. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96). Los hooks son llamadas ligeras (`svcGetSystemTick` + resta) que no afectan al rendimiento significativamente.
 
 ## Prueba 51
 

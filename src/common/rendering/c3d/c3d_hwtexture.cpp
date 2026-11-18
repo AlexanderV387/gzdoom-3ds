@@ -62,6 +62,7 @@ uint8_t *C3DHardwareTexture::MapBuffer()
 
 unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int h, int texunit, bool mipmap, const char *name)
 {
+	Diag::TimingMark(Diag::TC_Texture, svcGetSystemTick());
 	if (w <= 0 || h <= 0) return 0;
 	if (buffer == nullptr)
 	{
@@ -115,6 +116,7 @@ unsigned int C3DHardwareTexture::CreateTexture(unsigned char *buffer, int w, int
 		}
 	}
 	C3D_TexFlush(&mTex);
+	Diag::TimingMark(Diag::TC_Texture, svcGetSystemTick());
 	return 1;
 }
 

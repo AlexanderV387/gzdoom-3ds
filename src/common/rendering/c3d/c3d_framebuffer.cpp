@@ -177,6 +177,9 @@ void C3DFrameBuffer::ScreenBegin()
 	// The previous frame's GPU work must have finished. A healthy GPU needs far less than a
 	// frame for it; waiting up to 120 vblanks (2 s) tells a slow frame from a hung GPU. Once
 	// the hang is reported, one retry per frame is enough.
+#ifdef __3DS__
+	Diag::TimingMark(Diag::TC_GPUWait, svcGetSystemTick());
+#endif
 	if (gameloop_abort)
 	{
 		char buf[128];
@@ -219,6 +222,9 @@ void C3DFrameBuffer::ScreenBegin()
 		ok = C3D_FrameBegin(fbFlags);
 	}
 	Diag::FrameBegun(ok, retries);
+#ifdef __3DS__
+	Diag::TimingMark(Diag::TC_GPUWait, svcGetSystemTick());
+#endif
 	if (!ok)
 	{
 		if (gameloop_abort)
