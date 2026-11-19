@@ -76,7 +76,58 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 | 49 | Mejoras de rendimiento y UX | ✅ Tres cambios funcionales. Pendiente: congelamientos con ADL. |
 | 50 | Música en núcleo 1 | ✅ Sin congelamientos, pero la música se corta (núcleo 1 da ~30 % CPU). Log: `[AUDIO] StreamThread core=1 pri=0x30`. |
 | 51 | Música en núcleo 2 | ✅ Música continua sin cortes en núcleo 2 (hecho H7). |
-| 52 | Tiempos por categoría por imagen | Pendiente. |
+| 52 | Tiempos por categoría por imagen | ✅ Funciona. Valores en µs, worst acumulado, lógica mide TryRunTics entero, gu mezcla GPU y espera. |
+| 53 | Refinar tiempos de la 52 | Pendiente. |
+
+## Prueba 53
+
+**Lo que se pidió:**
+- [x] Cambiar unidades de µs a ms en `[FPS]`: c3d_diag.cpp:136-148 divide ticks por 268.1 (ticks/µs); cambiar a `/ 268100.0` para ms, 1 decimal.
+- [x] `TimingWorst` reset por ventana: c3d_diag.cpp:162-165 promueve `TimingFrame` → `TimingWorst` y limpia `TimingFrame` cada frame; añadir `TimingWorst[i] = 0` junto con `TimingWindow[i] = 0` en c3d_diag.cpp:152 (reset cada 5 s).
+- [x] Medir solo el trabajo real de lógica: los hooks actuales envuelven `TryRunTics` entero (d_net.cpp:2197, 2355) incluyendo espera; mover para envolver solo el bucle `while (runTics--) { G_Ticker(); ... }` (d_net.cpp:2321-2342); guardar tics ejecutados en variable estática y loguearlos.
+- [x] Tiempos reales GPU/CPU de citro3d: `gu` mezcla trabajo GPU y espera de refresh; leer `C3D_GetDrawingTime()` (GPU, ms) y `C3D_GetProcessingTime()` (CPU, ms) en `FrameDone`, citro3d renderqueue.c:249-256; `osTickCounterStart(&gpuTime)` en FrameEnd (l.239) solo pone `reference` sin borrar `elapsed` (libctru os.h:266-268), `onQueueFinish` actualiza `elapsed` cuando la GPU termina (l.46-49), y `osTickCounterRead` lee ese `elapsed` en ms (os.c:92-94), así que devuelve el tiempo GPU real del frame anterior ya completado.
+- [x] Nada más en esta prueba.
+
+**Pregunta:** ¿Los cuatro refinamientos muestran tiempos en ms con worst por ventana, lógica sin espera y GPU/CPU reales?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Punto 16: logs fiables con `fsync`.
+- Punto 17: carga ~97 s, Texman.Init ~52 s.
+- Prueba 52: `[FPS]` funciona, valores en µs (ticks/268.1), worst acumulado toda la sesión, lógica mide TryRunTics entero (incluye espera), `gu` mezcla GPU y refresh.
+- `osTickCounterRead` devuelve ms (libctru os.c:92-94: `elapsed / CPU_TICKS_PER_MSEC`).
+
+**Hipótesis A:** Los cuatro refinamientos funcionan y el `[FPS]` muestra valores coherentes en ms.
+- El log mostrará: worst reseteados por ventana (valores < 200 ms, no millones), lógica sin espera (valores bajos, < 5 ms), tics/imagen visible, GPU real de citro3d (ms del frame anterior completado) y CPU real de citro3d (ms de FrameBegin a FrameEnd) añadidos.
+**Hipótesis B:** Algo rompe el cálculo o el formato.
+- El log mostrará: valores anómalos (0, infinitos, negativos) o el formato `[FPS]` truncado/corrupto.
+
+**Única variable que cambia:** `c3d_diag.cpp` y `d_net.cpp`, bajo `#ifdef __3DS__`:
+1. c3d_diag.cpp:136-148: `/ 268.1` → `/ 268100.0` (ms en vez de µs).
+2. c3d_diag.cpp:152: añadir `TimingWorst[i] = 0` dentro del reset de ventana (junto con `TimingWindow[i] = 0`). El promote-to-worst de l.162-165 se mantiene (promueve `TimingFrame` → `TimingWorst` y limpia `TimingFrame` cada frame).
+3. c3d_diag.cpp:133: formato `[FPS]` añade `,ti=N,gr=%.1f,pr=%.1f` como últimos campos del `snprintf`, después de la última categoría `mu=`; `ti` es tics/imagen (entero), `gr` es GPU real citro3d (ms), `pr` es CPU real citro3d (ms). Búfer `buf[384]` ampliado a `buf[512]` si hace falta.
+4. c3d_diag.cpp:47-51: declarar `static double TimingGPUWindow[TimingCats] = {};` y `static double TimingCPUWindow[TimingCats] = {};`. En `FrameDone`, leer `C3D_GetDrawingTime()` y `C3D_GetProcessingTime()` (devuelven ms del frame anterior completado) y añadirlos a esos acumuladores por ventana.
+5. d_net.cpp:2197, 2355: quitar hooks TimingBegin/End de TryRunTics.
+6. d_net.cpp:2321-2342: TimingBegin/End alrededor del `while (runTics--)`; guardar `runTics` original en variable estática `TimingTics` antes del bucle.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Jugar MAP01-MAP02 5 min; log con `[FPS]` refinado |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 53`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola pasada A. Solo se modifica cómo se calculan y formatean los valores del `[FPS]` y dónde se colocan los hooks de timing; no cambia comportamiento del juego, solo diagnóstico.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra valores en ms coherentes (worst < 200 ms, lógica < 5 ms, tics visibles), B muestra valores anómalos o formato corrupto.
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: línea `[FPS]` con nuevos campos. La pantalla muestra gameplay normal.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A con 5 min de gameplay. Los datos del log confirman si los refinamientos funcionan.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `svcGetSystemTick` en libctru svc.h, `/ 268.1` en c3d_diag.cpp:136, `TimingWorst` en c3d_diag.cpp:49 y l.162-165, `TryRunTics` hooks en d_net.cpp:2197/2355, `G_Ticker` loop en d_net.cpp:2321-2342, `C3D_GetDrawingTime()`/`C3D_GetProcessingTime()` en citro3d renderqueue.c:249-256 (devuelven double ms vía `osTickCounterRead`, libctru os.c:92-94), `osTickCounterStart` solo pone `reference` sin borrar `elapsed` (libctru os.h:266-268), `onQueueFinish` actualiza `elapsed` (renderqueue.c:46-49).
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Con una pasada, si los valores son coherentes en ms → A. Si hay crash o valores anómalos → B. Si el formato se trunca → búfer de 384 bytes insuficiente.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `TimingWorst`, `TimingWindow`, `TimingFrame` son variables existentes en c3d_diag.cpp. `TimingGPUWindow` y `TimingCPUWindow` son nuevas variables estáticas declaradas en c3d_diag.cpp:47-51. `TimingTics` es nueva variable estática en d_net.cpp. `C3D_GetDrawingTime()` y `C3D_GetProcessingTime()` son de citro3d (incluidas por `<citro3d.h>` en c3d_diag.h:23). `runTics` es variable local existente en `TryRunTics`. No se crea función ni archivo nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: los hooks marcan inicio/fin de categorías (solo G_Ticker loop para lógica), `[FPS]` acumula y muestra medias/peores en ms, añade tics/imagen y GPU/CPU reales de citro3d. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96). El búfer `buf[384]` puede ser justo; se amplía si hace falta.
 
 ## Prueba 49
 
