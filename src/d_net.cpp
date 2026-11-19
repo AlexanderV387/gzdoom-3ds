@@ -2193,9 +2193,6 @@ static void CalculateNetStabilityBuffer(int diff)
 //
 void TryRunTics()
 {
-#ifdef __3DS__
-	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Logic);
-#endif
 	GC::CheckGC();
 
 	if (ToggleFullscreen)
@@ -2318,6 +2315,10 @@ void TryRunTics()
 
 	// Run the available tics.
 	P_UnPredictClient();
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingTicsWindow += runTics;
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Logic);
+#endif
 	while (runTics--)
 	{
 		const bool stabilize = ShouldStabilizeTick();
@@ -2340,6 +2341,9 @@ void TryRunTics()
 			break;
 		}
 	}
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Logic);
+#endif
 	P_PredictClient();
 
 	// These should use the actual tics since they're not actually tied to the gameplay logic.
@@ -2351,9 +2355,6 @@ void TryRunTics()
 	// since it should only go up otherwise.
 	S_UpdateSounds(players[consoleplayer].camera, primaryLevel->LocalWorldTimer - min<int>(primaryLevel->LocalWorldTimer, worldTimer));
 	NetworkEntityManager::VerifyPredictedEntities();
-#ifdef __3DS__
-	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Logic);
-#endif
 }
 
 void Net_NewClientTic()

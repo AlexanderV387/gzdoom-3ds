@@ -49,6 +49,9 @@ static unsigned long long TimingFrame[TC_COUNT] = { 0 };
 static unsigned long long TimingWorst[TC_COUNT] = { 0 };
 static unsigned long long TimingWindow[TC_COUNT] = { 0 };
 static int TimingTexWindow = 0; // texture upload count per window
+static double TimingGPUWindow = 0; // real GPU time from citro3d per window (ms)
+static double TimingCPUWindow = 0; // real CPU time from citro3d per window (ms)
+int TimingTicsWindow = 0; // tics executed per window (for average)
 
 static bool Exists(const char *name)
 {
@@ -110,6 +113,9 @@ void FrameBegun(bool ok, int retries)
 
 void FrameDone(bool drawn)
 {
+	// Accumulate real GPU/CPU times from citro3d (ms per completed frame)
+	TimingGPUWindow += C3D_GetDrawingTime();
+	TimingCPUWindow += C3D_GetProcessingTime();
 	if (Frame < SummaryFrames)
 	{
 		Line("frame %d: begin=%s retries=%d draws: arrays=%d elements=%d not_sent=%d%s",
@@ -129,28 +135,34 @@ void FrameDone(bool drawn)
 		last = now;
 		if (now - windowStart >= 5000)
 		{
-			char buf[384];
-			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f\n",
+			char buf[512];
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f pr=%.1f\n",
 				now, frames, double(now - windowStart) / frames, frames * 1000.0 / double(now - windowStart),
 				worst, draws / frames, int(gamestate), int(menuactive),
-				double(TimingWindow[TC_Logic]) / double(frames) / 268.1,
-				double(TimingWorst[TC_Logic]) / 268.1,
-				double(TimingWindow[TC_Scene3D]) / double(frames) / 268.1,
-				double(TimingWorst[TC_Scene3D]) / 268.1,
-				double(TimingWindow[TC_HUD2D]) / double(frames) / 268.1,
-				double(TimingWorst[TC_HUD2D]) / 268.1,
-				double(TimingWindow[TC_GPUWait]) / double(frames) / 268.1,
-				double(TimingWorst[TC_GPUWait]) / 268.1,
+				double(TimingWindow[TC_Logic]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_Logic]) / 268100.0,
+				double(TimingWindow[TC_Scene3D]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_Scene3D]) / 268100.0,
+				double(TimingWindow[TC_HUD2D]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_HUD2D]) / 268100.0,
+				double(TimingWindow[TC_GPUWait]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_GPUWait]) / 268100.0,
 				TimingTexWindow,
-				double(TimingWindow[TC_Texture]) / double(frames) / 268.1,
-				double(TimingWorst[TC_Texture]) / 268.1,
-				double(TimingWindow[TC_Music]) / double(frames) / 268.1,
-				double(TimingWorst[TC_Music]) / 268.1);
+				double(TimingWindow[TC_Texture]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_Texture]) / 268100.0,
+				double(TimingWindow[TC_Music]) / double(frames) / 268100.0,
+				double(TimingWorst[TC_Music]) / 268100.0,
+				double(TimingTicsWindow) / double(frames),
+				TimingGPUWindow,
+				TimingCPUWindow);
 			N3DS_Log(buf);
 			N3DS_LogFlush();
 			// Reset window accumulators
-			for (int i = 0; i < TC_COUNT; i++) TimingWindow[i] = 0;
+			for (int i = 0; i < TC_COUNT; i++) { TimingWindow[i] = 0; TimingWorst[i] = 0; }
 			TimingTexWindow = 0;
+			TimingGPUWindow = 0;
+			TimingCPUWindow = 0;
+			TimingTicsWindow = 0;
 			windowStart = now;
 			frames = draws = worst = 0;
 		}

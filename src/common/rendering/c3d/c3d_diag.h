@@ -51,6 +51,7 @@ bool MenuDiagEmitScissor();						// log scissor summary for current frame, retur
 enum TimingCategory { TC_Logic = 0, TC_Scene3D, TC_HUD2D, TC_GPUWait, TC_Texture, TC_Music, TC_COUNT };
 void TimingBegin(int category);	// mark start: stores svcGetSystemTick() internally
 void TimingEnd(int category);	// mark end: adds elapsed ticks if begin was called, then clears
+extern int TimingTicsWindow;	// tics executed per window (accumulated from d_net.cpp)
 
 }
 }
