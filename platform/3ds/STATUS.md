@@ -129,6 +129,55 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **¿Lo que vas a añadir ya existe?** `TimingWorst`, `TimingWindow`, `TimingFrame` son variables existentes en c3d_diag.cpp. `TimingGPUWindow` y `TimingCPUWindow` son nuevas variables estáticas declaradas en c3d_diag.cpp:47-51. `TimingTics` es nueva variable estática en d_net.cpp. `C3D_GetDrawingTime()` y `C3D_GetProcessingTime()` son de citro3d (incluidas por `<citro3d.h>` en c3d_diag.h:23). `runTics` es variable local existente en `TryRunTics`. No se crea función ni archivo nuevo.
 9. **¿Qué se ejecuta después de tu cambio?** Cada frame: los hooks marcan inicio/fin de categorías (solo G_Ticker loop para lógica), `[FPS]` acumula y muestra medias/peores en ms, añade tics/imagen y GPU/CPU reales de citro3d. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96). El búfer `buf[384]` puede ser justo; se amplía si hace falta.
 
+## Prueba 54
+
+**Lo que se pidió:**
+- [x] vid_vsync (ya existe como cvar, v_video.cpp:185) decide los flags de C3D_FrameBegin en la 3DS: true = SYNCDRAW|NONBLOCK como ahora; false = solo NONBLOCK (sin esperar al refresco).
+- [x] Escribir en el log una vez el modo usado al iniciar.
+- [x] En [FPS]: gr y pr como media por imagen (÷ frames), y un campo ot = avg − (lo + sc + hd) (resto: gu + tx + mu + overhead no medido).
+- [x] Dos pasadas: A con vid_vsync=true, B con vid_vsync=false.
+- [x] Nada más en esta prueba.
+
+**Pregunta:** ¿Cuántos FPS da vid_vsync=false frente a true, y se ve tearing en pantalla?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- F2: con SYNCDRAW, C3D_FrameBegin espera a que pasen las vblank de las dos pantallas antes de nada (hechos-3ds.md, l.14).
+- Datos de Alex (prueba 53 en ejecución): lógica ~1-3 ms, GPU real ~4-9 ms/imagen, trabajo total ~17-20 ms/imagen; gu ~13 ms parado, FPS pegados a 30.
+- Punto 12: sin SYNCDRAW, C3D_FrameBegin vuelve de inmediato (prueba 39).
+- vid_vsync es cvar existente (v_video.cpp:185), declarado EXTERN_CVAR en d_net.cpp:70.
+- c3d_framebuffer.cpp:190 pone siempre SYNCDRAW|NONBLOCK; SetVSync es no-op (c3d_backend.h:215).
+
+**Hipótesis A:** Sin SYNCDRAW el FPS sube a >45 fps (avg < 11 ms) y se ve tearing.
+- El log mostrará: `[C3D] vsync mode=off` en la pasada B. `[FPS]` con gu < 2 ms media y avg < 11 ms. ot bajo (~1-3 ms, solo tx + mu sin espera GPU). Alex confirma tearing visual.
+**Hipótesis B:** Sin SYNCDRAW el FPS sube pero no mucho (>35 pero <45 fps, avg 11-16 ms) o se queda en ~30.
+- El log mostrará: `[C3D] vsync mode=off`. gu < 2 ms pero avg entre 11 y 16 ms (sc o hd consumen el presupuesto) o avg > 16.7 ms (sin cambio). Tearing leve o ausente.
+
+**Única variable que cambia:** c3d_framebuffer.cpp y c3d_diag.cpp, bajo `#ifdef __3DS__`:
+1. c3d_framebuffer.cpp:190: `vid_vsync` decide fbFlags (true → SYNCDRAW|NONBLOCK, false → NONBLOCK). `EXTERN_CVAR(Bool, vid_vsync)` añadido.
+2. c3d_framebuffer.cpp: primer FrameBegun loguea `[C3D] vsync mode=on` o `off` una vez.
+3. c3d_diag.cpp:139: `gr` y `pr` divididos por frames (media por imagen). Nuevo campo `ot=%.1f` = avg − (lo + sc + hd) en ms.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | `vid_vsync=true` en el ini | Jugar MAP01-MAP02 3 min; log con `[FPS]` y `[C3D] vsync mode=on`; sin tearing |
+| B | `vid_vsync=false` en el ini | Jugar MAP01-MAP02 3 min; log con `[FPS]` y `[C3D] vsync mode=off`; ¿tearing? |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 54`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una variable: fbFlags en C3D_FrameBegin. Pasada A: `SYNCDRAW|NONBLOCK`, pasada B: `NONBLOCK`. Todo lo demás igual (mismo shader, misma geometría, mismos draws). El `[FPS]` cambia formato (gr/pr por imagen, ot añadido) pero es idéntico en ambas pasadas.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra avg < 11 ms en B (>45 fps) con tearing visible; B muestra avg 11-16 ms o >16.7 ms con tearing leve o ausente. Ambas muestran gu bajo en B.
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[C3D] vsync mode=on/off` y `[FPS]` con gu, avg, ot. La pantalla muestra gameplay normal.
+4. **¿Se resuelve en una sola compilación?** Sí: dos pasadas A y B con el mismo `.3dsx`, solo cambia el ini.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `vid_vsync` en v_video.cpp:185 (CUSTOM_CVAR, Bool), EXTERN_CVAR en d_net.cpp:70. SYNCDRAW|NONBLOCK en c3d_framebuffer.cpp:190. F2 en hechos-3ds.md l.14: SYNCDRAW espera vblank de ambas pantallas. Sin SYNCDRAW vuelve de inmediato (prueba 39). SetVSync no-op en c3d_backend.h:215.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si gu baja en B pero avg no baja → B (sc o hd altos). Si gu y avg bajan → A. Si gu no baja → el cambio no surtió efecto (compilación incorrecta o vid_vsync no leído).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: solo cambiar `vid_vsync=true` o `false` en el ini.
+8. **¿Lo que vas a añadir ya existe?** `vid_vsync` es cvar existente. `EXTERN_CVAR` patrón usado en d_net.cpp:70 y otros archivos. `N3DS_Log` ya usado en c3d_framebuffer.cpp (marcas `[EXIT]`). `TimingWindow`, `TimingWorst`, `TimingGPUWindow`, `TimingCPUWindow` son variables existentes en c3d_diag.cpp. No se crea función ni archivo nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: `screen->Update()` llama a `BeginFrame()` → `C3D_FrameBegin(fbFlags)` con flags según vid_vsync. FrameDone escribe `[FPS]` con gr/pr por imagen y ot. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
 ## Prueba 49
 
 **Lo que se pidió:**
