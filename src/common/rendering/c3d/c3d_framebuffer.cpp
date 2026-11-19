@@ -29,6 +29,9 @@
 #include "printf.h"
 #include "engineerrors.h"
 #include "platform_3ds.h"
+#include "c_cvars.h"
+
+EXTERN_CVAR(Bool, vid_vsync)
 
 void Draw2D(F2DDrawer *drawer, FRenderState &state);
 
@@ -187,7 +190,17 @@ void C3DFrameBuffer::ScreenBegin()
 		N3DS_Log(buf);
 		N3DS_LogFlush();
 	}
-	u32 fbFlags = gameloop_abort ? C3D_FRAME_NONBLOCK : (C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK);
+	// Test 54: read vid_vsync every frame; log mode change
+	static int prevVsync = -1;
+	bool wantVsync = !gameloop_abort && vid_vsync;
+	if (prevVsync < 0 || (int)wantVsync != prevVsync)
+	{
+		char buf[128];
+		snprintf(buf, sizeof(buf), "[VS] mode=%s\n", wantVsync ? "on" : "off");
+		N3DS_Log(buf);
+		prevVsync = wantVsync;
+	}
+	u32 fbFlags = gameloop_abort ? C3D_FRAME_NONBLOCK : (wantVsync ? (C3D_FRAME_SYNCDRAW | C3D_FRAME_NONBLOCK) : C3D_FRAME_NONBLOCK);
 	bool ok = C3D_FrameBegin(fbFlags);
 	if (gameloop_abort)
 	{

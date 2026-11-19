@@ -136,14 +136,19 @@ void FrameDone(bool drawn)
 		if (now - windowStart >= 5000)
 		{
 			char buf[512];
-			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f pr=%.1f\n",
-				now, frames, double(now - windowStart) / frames, frames * 1000.0 / double(now - windowStart),
+			double avg = double(now - windowStart) / frames;
+			double lo = double(TimingWindow[TC_Logic]) / double(frames) / 268100.0;
+			double sc = double(TimingWindow[TC_Scene3D]) / double(frames) / 268100.0;
+			double hd = double(TimingWindow[TC_HUD2D]) / double(frames) / 268100.0;
+			double ot = avg - (lo + sc + hd);
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f/%.1f pr=%.1f/%.1f ot=%.1f\n",
+				now, frames, avg, frames * 1000.0 / double(now - windowStart),
 				worst, draws / frames, int(gamestate), int(menuactive),
-				double(TimingWindow[TC_Logic]) / double(frames) / 268100.0,
+				lo,
 				double(TimingWorst[TC_Logic]) / 268100.0,
-				double(TimingWindow[TC_Scene3D]) / double(frames) / 268100.0,
+				sc,
 				double(TimingWorst[TC_Scene3D]) / 268100.0,
-				double(TimingWindow[TC_HUD2D]) / double(frames) / 268100.0,
+				hd,
 				double(TimingWorst[TC_HUD2D]) / 268100.0,
 				double(TimingWindow[TC_GPUWait]) / double(frames) / 268100.0,
 				double(TimingWorst[TC_GPUWait]) / 268100.0,
@@ -153,8 +158,11 @@ void FrameDone(bool drawn)
 				double(TimingWindow[TC_Music]) / double(frames) / 268100.0,
 				double(TimingWorst[TC_Music]) / 268100.0,
 				double(TimingTicsWindow) / double(frames),
+				double(TimingGPUWindow) / double(frames),
 				TimingGPUWindow,
-				TimingCPUWindow);
+				double(TimingCPUWindow) / double(frames),
+				TimingCPUWindow,
+				ot);
 			N3DS_Log(buf);
 			N3DS_LogFlush();
 			// Reset window accumulators
