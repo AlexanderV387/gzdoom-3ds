@@ -162,7 +162,9 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 	{
 		// This still needs to set the texture mode. As blend mode it will always use GL_ONE/GL_ZERO
 		state.SetTextureMode(RenderStyle);
+#ifdef __3DS__
 		state.SetDepthBias(-1, -128);
+#endif
 	}
 	if (RenderStyle.BlendOp != STYLEOP_Shadow)
 	{

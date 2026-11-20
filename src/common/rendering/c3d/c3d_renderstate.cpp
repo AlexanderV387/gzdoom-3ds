@@ -17,6 +17,10 @@
 #include "printf.h"
 #include "platform_3ds.h"
 
+#ifdef __3DS__
+EXTERN_CVAR(Float, c3d_depthbias)
+#endif
+
 namespace C3DRenderer
 {
 
@@ -549,6 +553,15 @@ bool C3DRenderState::Apply(int dt)
 	static const GPU_TESTFUNC depthFuncs[] = { GPU_GREATER, GPU_GEQUAL, GPU_ALWAYS };
 	const GPU_WRITEMASK writeMask = (GPU_WRITEMASK)(mColorWrite | (mDepthMask ? GPU_WRITE_DEPTH : 0));
 	C3D_DepthTest(mDepthTest, depthFuncs[std::clamp(mDepthFunc, 0, 2)], writeMask);
+#ifdef __3DS__
+	if (mBias.mChanged)
+	{
+		C3D_DepthMap(true, -1.0f, mBias.mUnits * c3d_depthbias);
+		static bool logged = false;
+		if (!logged) { Printf("c3d_depthbias used: %f\n", c3d_depthbias); logged = true; }
+		mBias.mChanged = false;
+	}
+#endif
 	C3D_CullFace(GPU_CULL_NONE);
 
 	if (mStencilEnabled)
@@ -606,9 +619,6 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
 	uint8_t *first = (uint8_t *)vb->Memory() + size_t(mVertexOffsets[0] + index) * vb->mStride;
-#ifdef __3DS__
-	if (!Diag::NoFlush) GSPGPU_FlushDataCache(first, size_t(count) * vb->mStride);
-#endif
 
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "arrays" : "arrays(not sent)", dt, index, count, first, nullptr);

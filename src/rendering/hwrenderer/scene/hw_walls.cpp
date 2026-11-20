@@ -126,7 +126,9 @@ void HWWall::RenderFogBoundary(HWWallDispatcher*di, FRenderState &state)
 		SetFog(state, di->Level, di->lightmode, lightlevel, rel, false, &Colormap, false);
 		state.SetEffect(EFF_FOGBOUNDARY);
 		state.AlphaFunc(Alpha_GEqual, 0.f);
+#ifdef __3DS__
 		state.SetDepthBias(-1, -128);
+#endif
 		RenderWall(state, HWWall::RWF_BLANK);
 		state.ClearDepthBias();
 		state.SetEffect(EFF_NONE);

@@ -251,7 +251,9 @@ void HWFlat::DrawFloodPlanes(HWDrawInfo *di, FRenderState &state)
 
 		// Push bleeding floor/ceiling textures back a little in the z-buffer
 		// so they don't interfere with overlapping mid textures.
+#ifdef __3DS__
 		state.SetDepthBias(1, 128);
+#endif
 
 		// Create stencil
 		state.SetEffect(EFF_STENCIL);
