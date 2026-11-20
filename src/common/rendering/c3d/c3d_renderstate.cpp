@@ -606,7 +606,9 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
 	uint8_t *first = (uint8_t *)vb->Memory() + size_t(mVertexOffsets[0] + index) * vb->mStride;
-	GSPGPU_FlushDataCache(first, size_t(count) * vb->mStride);
+#ifdef __3DS__
+	if (!Diag::NoFlush) GSPGPU_FlushDataCache(first, size_t(count) * vb->mStride);
+#endif
 
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "arrays" : "arrays(not sent)", dt, index, count, first, nullptr);
@@ -634,9 +636,13 @@ void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 	uint16_t *dst = IndexRing + IndexRingPos;
 	for (int i = 0; i < count; i++) dst[i] = uint16_t(src[i] - lo);
 	IndexRingPos += (count + 1) & ~1;	// keep the next block 4-byte aligned
-	GSPGPU_FlushDataCache(dst, count * sizeof(uint16_t));
+#ifdef __3DS__
+	if (!Diag::NoFlush) GSPGPU_FlushDataCache(dst, count * sizeof(uint16_t));
+#endif
 	uint8_t *first = (uint8_t *)vb->Memory() + size_t(base) * vb->mStride;
-	GSPGPU_FlushDataCache(first, size_t(hi - lo + 1) * vb->mStride);
+#ifdef __3DS__
+	if (!Diag::NoFlush) GSPGPU_FlushDataCache(first, size_t(hi - lo + 1) * vb->mStride);
+#endif
 
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "elements" : "elements(not sent)", dt, int(lo), count, first, dst);

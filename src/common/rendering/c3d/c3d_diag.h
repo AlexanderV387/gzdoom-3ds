@@ -33,6 +33,7 @@ extern bool Triangle;
 extern bool MinimalShader;
 extern bool TestFlip;
 extern bool MenuDiag;
+extern bool NoFlush;
 
 void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -51,7 +52,9 @@ bool MenuDiagEmitScissor();						// log scissor summary for current frame, retur
 // test 55: TC_HUD2D split into TC_HDHud + TC_HDGPU; ot broken into 4 categories
 enum TimingCategory {
     TC_Logic = 0, TC_Scene3D, TC_HDHud, TC_HDGPU, TC_GPUWait, TC_Texture,
-    TC_Music, TC_Input, TC_Sound, TC_PreDisplay, TC_FrameEnd, TC_COUNT
+    TC_Music, TC_Input, TC_Sound, TC_PreDisplay, TC_FrameEnd,
+    TC_Loop, TC_GC, TC_Net, TC_Wait,
+    TC_COUNT
 };
 void TimingBegin(int category);	// mark start: stores svcGetSystemTick() internally
 void TimingEnd(int category);	// mark end: adds elapsed ticks if begin was called, then clears

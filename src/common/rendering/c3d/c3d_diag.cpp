@@ -26,6 +26,7 @@ bool Triangle = false;
 bool MinimalShader = false;
 bool TestFlip = false;
 bool MenuDiag = false;
+bool NoFlush = false;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -88,8 +89,9 @@ void Init()
 	MinimalShader = Exists("c3d-minimal-shader.txt");
 	TestFlip = Exists("c3d-testflip.txt");
 	MenuDiag = Exists("c3d-menu-diag.txt");
-	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d menudiag=%d",
-		NoDraw, NoTex, Triangle, MinimalShader, TestFlip, MenuDiag);
+	NoFlush = Exists("c3d-noflush.txt");
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d menudiag=%d noflush=%d",
+		NoDraw, NoTex, Triangle, MinimalShader, TestFlip, MenuDiag, NoFlush);
 }
 
 bool HangReported()
@@ -139,7 +141,11 @@ void FrameDone(bool drawn)
 		if (now - windowStart >= 5000)
 		{
 			char buf[512];
-			double avg = double(now - windowStart) / frames;
+			double it = double(TimingWindow[TC_Loop]) / double(frames) / 268100.0;
+			double gc = double(TimingWindow[TC_GC]) / double(frames) / 268100.0;
+			double net = double(TimingWindow[TC_Net]) / double(frames) / 268100.0;
+			double wait = double(TimingWindow[TC_Wait]) / double(frames) / 268100.0;
+			double avg = double(now - windowStart) / double(frames);
 			double lo = double(TimingWindow[TC_Logic]) / double(frames) / 268100.0;
 			double sc = double(TimingWindow[TC_Scene3D]) / double(frames) / 268100.0;
 			double hdh = double(TimingWindow[TC_HDHud]) / double(frames) / 268100.0;
@@ -148,7 +154,7 @@ void FrameDone(bool drawn)
 			double snd = double(TimingWindow[TC_Sound]) / double(frames) / 268100.0;
 			double pre = double(TimingWindow[TC_PreDisplay]) / double(frames) / 268100.0;
 			double fe = double(TimingWindow[TC_FrameEnd]) / double(frames) / 268100.0;
-			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hdH=%.1f/%.1f hdG=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f/%.1f pr=%.1f/%.1f in=%.1f/%.1f snd=%.1f/%.1f pre=%.1f/%.1f fe=%.1f/%.1f d2=%d\n",
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hdH=%.1f/%.1f hdG=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f/%.1f pr=%.1f/%.1f in=%.1f/%.1f snd=%.1f/%.1f pre=%.1f/%.1f fe=%.1f/%.1f it=%.1f gc=%.1f net=%.1f wait=%.1f d2=%d\n",
 				now, frames, avg, frames * 1000.0 / double(now - windowStart),
 				worst, draws / frames, int(gamestate), int(menuactive),
 				lo,
@@ -179,6 +185,7 @@ void FrameDone(bool drawn)
 				double(TimingWorst[TC_PreDisplay]) / 268100.0,
 				fe,
 				double(TimingWorst[TC_FrameEnd]) / 268100.0,
+				it, gc, net, wait,
 				Timing2DDrawsWindow);
 			N3DS_Log(buf);
 			N3DS_LogFlush();
