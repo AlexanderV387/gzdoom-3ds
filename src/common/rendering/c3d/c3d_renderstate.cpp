@@ -558,7 +558,7 @@ bool C3DRenderState::Apply(int dt)
 	{
 		C3D_DepthMap(true, -1.0f, mBias.mUnits * c3d_depthbias);
 		static bool logged = false;
-		if (!logged) { Printf("c3d_depthbias used: %f\n", c3d_depthbias.mValue); logged = true; }
+		if (!logged) { Printf("c3d_depthbias used: %f\n", *c3d_depthbias); logged = true; }
 		mBias.mChanged = false;
 	}
 #endif
@@ -646,13 +646,7 @@ void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 	uint16_t *dst = IndexRing + IndexRingPos;
 	for (int i = 0; i < count; i++) dst[i] = uint16_t(src[i] - lo);
 	IndexRingPos += (count + 1) & ~1;	// keep the next block 4-byte aligned
-#ifdef __3DS__
-	if (!Diag::NoFlush) GSPGPU_FlushDataCache(dst, count * sizeof(uint16_t));
-#endif
 	uint8_t *first = (uint8_t *)vb->Memory() + size_t(base) * vb->mStride;
-#ifdef __3DS__
-	if (!Diag::NoFlush) GSPGPU_FlushDataCache(first, size_t(hi - lo + 1) * vb->mStride);
-#endif
 
 	const bool send = !Diag::NoDraw && !Diag::Triangle;
 	if (Diag::WantDrawDetails()) DescribeDraw(send ? "elements" : "elements(not sent)", dt, int(lo), count, first, dst);

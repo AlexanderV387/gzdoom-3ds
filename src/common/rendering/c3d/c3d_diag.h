@@ -33,7 +33,7 @@ extern bool Triangle;
 extern bool MinimalShader;
 extern bool TestFlip;
 extern bool MenuDiag;
-extern bool NoFlush;
+
 
 void Init();									// reads the switches, logs them
 void Line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

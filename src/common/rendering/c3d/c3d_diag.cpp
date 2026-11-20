@@ -26,7 +26,6 @@ bool Triangle = false;
 bool MinimalShader = false;
 bool TestFlip = false;
 bool MenuDiag = false;
-bool NoFlush = false;
 
 static const int SummaryFrames = 12;	// frames with a summary line
 static const int DetailDraws = 8;		// draws described in full
@@ -89,9 +88,8 @@ void Init()
 	MinimalShader = Exists("c3d-minimal-shader.txt");
 	TestFlip = Exists("c3d-testflip.txt");
 	MenuDiag = Exists("c3d-menu-diag.txt");
-	NoFlush = Exists("c3d-noflush.txt");
-	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d menudiag=%d noflush=%d",
-		NoDraw, NoTex, Triangle, MinimalShader, TestFlip, MenuDiag, NoFlush);
+	Line("switches: nodraw=%d notex=%d triangle=%d minshader=%d testflip=%d menudiag=%d",
+		NoDraw, NoTex, Triangle, MinimalShader, TestFlip, MenuDiag);
 }
 
 bool HangReported()
