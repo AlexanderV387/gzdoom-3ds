@@ -558,7 +558,7 @@ bool C3DRenderState::Apply(int dt)
 	{
 		C3D_DepthMap(true, -1.0f, mBias.mUnits * c3d_depthbias);
 		static bool logged = false;
-		if (!logged) { Printf("c3d_depthbias used: %f\n", c3d_depthbias); logged = true; }
+		if (!logged) { Printf("c3d_depthbias used: %f\n", c3d_depthbias.mValue); logged = true; }
 		mBias.mChanged = false;
 	}
 #endif

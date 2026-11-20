@@ -196,14 +196,7 @@ bool setmodeneeded = false;
 #ifdef __3DS__
 CUSTOM_CVAR(Float, c3d_depthbias, 1.0f/65536.0f, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 {
-	if (screen != NULL) Printf("Applying c3d_depthbias: %f\n", self);
-}
-#endif
-
-#ifdef __3DS__
-CUSTOM_CVAR(Float, c3d_depthbias, 1.0f/65536.0f, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
-{
-	Printf("Applying c3d_depthbias: %f\n", self);
+	if (screen != NULL) Printf("Applying c3d_depthbias: %f\n", self.mValue);
 }
 #endif
 bool setsizeneeded = false;
