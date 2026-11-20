@@ -41,9 +41,11 @@ static int DrawsDescribed = 0;
 static int MenuDiagMenuFrames = 0;
 static int MenuDiagHudFrames = 0;
 
-// Per-frame timing breakdown (test 52): 6 categories measured with svcGetSystemTick (268.1 MHz)
-// TC_Logic: game tics, TC_Scene3D: 3D CPU prep, TC_HUD2D: HUD/2D rendering,
+// Per-frame timing breakdown (test 52): 7 base + 6 new categories (test 55) measured with svcGetSystemTick (268.1 MHz)
+// TC_Logic: game tics, TC_Scene3D: 3D CPU prep, TC_HDHud: HUD overlays, TC_HDGPU: 2D GPU send,
 // TC_GPUWait: FrameBegin retries + FrameEnd, TC_Texture: texture uploads, TC_Music: S_ChangeMusic
+// TC_Input: I_StartTic + D_ProcessEvents, TC_Sound: S_UpdateMusic,
+// TC_PreDisplay: D_Display pre-scene, TC_FrameEnd: C3D_FrameEnd
 static unsigned long long TimingBeginTicks[TC_COUNT] = { 0 }; // 0 means no begin yet this frame
 static unsigned long long TimingFrame[TC_COUNT] = { 0 };
 static unsigned long long TimingWorst[TC_COUNT] = { 0 };
@@ -52,6 +54,7 @@ static int TimingTexWindow = 0; // texture upload count per window
 static double TimingGPUWindow = 0; // real GPU time from citro3d per window (ms)
 static double TimingCPUWindow = 0; // real CPU time from citro3d per window (ms)
 int TimingTicsWindow = 0; // tics executed per window (for average)
+int Timing2DDrawsWindow = 0; // 2D draw calls per window
 
 static bool Exists(const char *name)
 {
@@ -139,17 +142,23 @@ void FrameDone(bool drawn)
 			double avg = double(now - windowStart) / frames;
 			double lo = double(TimingWindow[TC_Logic]) / double(frames) / 268100.0;
 			double sc = double(TimingWindow[TC_Scene3D]) / double(frames) / 268100.0;
-			double hd = double(TimingWindow[TC_HUD2D]) / double(frames) / 268100.0;
-			double ot = avg - (lo + sc + hd);
-			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hd=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f/%.1f pr=%.1f/%.1f ot=%.1f\n",
+			double hdh = double(TimingWindow[TC_HDHud]) / double(frames) / 268100.0;
+			double hdg = double(TimingWindow[TC_HDGPU]) / double(frames) / 268100.0;
+			double inp = double(TimingWindow[TC_Input]) / double(frames) / 268100.0;
+			double snd = double(TimingWindow[TC_Sound]) / double(frames) / 268100.0;
+			double pre = double(TimingWindow[TC_PreDisplay]) / double(frames) / 268100.0;
+			double fe = double(TimingWindow[TC_FrameEnd]) / double(frames) / 268100.0;
+			snprintf(buf, sizeof(buf), "[FPS] T+%lld frames=%d avg=%.1fms (%.1f fps) worst=%dms draws/frame=%d gs=%d menu=%d lo=%.1f/%.1f sc=%.1f/%.1f hdH=%.1f/%.1f hdG=%.1f/%.1f gu=%.1f/%.1f tx=%d/%.1f/%.1f mu=%.1f/%.1f ti=%.2f gr=%.1f/%.1f pr=%.1f/%.1f in=%.1f/%.1f snd=%.1f/%.1f pre=%.1f/%.1f fe=%.1f/%.1f d2=%d\n",
 				now, frames, avg, frames * 1000.0 / double(now - windowStart),
 				worst, draws / frames, int(gamestate), int(menuactive),
 				lo,
 				double(TimingWorst[TC_Logic]) / 268100.0,
 				sc,
 				double(TimingWorst[TC_Scene3D]) / 268100.0,
-				hd,
-				double(TimingWorst[TC_HUD2D]) / 268100.0,
+				hdh,
+				double(TimingWorst[TC_HDHud]) / 268100.0,
+				hdg,
+				double(TimingWorst[TC_HDGPU]) / 268100.0,
 				double(TimingWindow[TC_GPUWait]) / double(frames) / 268100.0,
 				double(TimingWorst[TC_GPUWait]) / 268100.0,
 				TimingTexWindow,
@@ -162,7 +171,15 @@ void FrameDone(bool drawn)
 				TimingGPUWindow,
 				double(TimingCPUWindow) / double(frames),
 				TimingCPUWindow,
-				ot);
+				inp,
+				double(TimingWorst[TC_Input]) / 268100.0,
+				snd,
+				double(TimingWorst[TC_Sound]) / 268100.0,
+				pre,
+				double(TimingWorst[TC_PreDisplay]) / 268100.0,
+				fe,
+				double(TimingWorst[TC_FrameEnd]) / 268100.0,
+				Timing2DDrawsWindow);
 			N3DS_Log(buf);
 			N3DS_LogFlush();
 			// Reset window accumulators
@@ -171,6 +188,7 @@ void FrameDone(bool drawn)
 			TimingGPUWindow = 0;
 			TimingCPUWindow = 0;
 			TimingTicsWindow = 0;
+			Timing2DDrawsWindow = 0;
 			windowStart = now;
 			frames = draws = worst = 0;
 		}

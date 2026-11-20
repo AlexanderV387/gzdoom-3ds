@@ -276,6 +276,7 @@ void C3DFrameBuffer::Draw2D()
 {
 	ScreenBegin();
 	if (mFrameBlocked || Diag::Triangle) return;
+	Diag::Timing2DDrawsWindow++;
 	::Draw2D(twod, *TheRenderState);
 }
 
@@ -479,7 +480,13 @@ void C3DFrameBuffer::Update()
 		Draw2D();	// everything 2D still pending (menus, HUD, console, title)
 	}
 	twod->Clear();
+#ifdef __3DS__
+	Diag::TimingBegin(Diag::TC_FrameEnd);
+#endif
 	C3D_FrameEnd(0);
+#ifdef __3DS__
+	Diag::TimingEnd(Diag::TC_FrameEnd);
+#endif
 	mFrameStarted = false;
 	Diag::FrameDone(true);
 	TheRenderState->ResetDeviceState();

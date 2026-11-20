@@ -1277,6 +1277,8 @@ void D_Display ()
 	cycles.Reset();
 	cycles.Clock();
 #ifdef __3DS__
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_PreDisplay);
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_PreDisplay);
 	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Scene3D);
 #endif
 
@@ -1577,12 +1579,16 @@ void D_Display ()
 		wipestart = nullptr;
 #ifdef __3DS__
 		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Scene3D);
-		C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_HUD2D);
+		C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_HDHud);
 #endif
 		DrawOverlays();
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_HDHud);
+		C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_HDGPU);
+#endif
 		End2DAndUpdate ();
 #ifdef __3DS__
-		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_HUD2D);
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_HDGPU);
 #endif
 	}
 	else
@@ -1658,8 +1664,14 @@ void D_DoomLoop ()
 
 			TryRunTics (); // will run at least one tic
 			// Update display, next frame, with current state.
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Input);
+#endif
 			I_StartTic ();
 			D_ProcessEvents();
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Input);
+#endif
 #ifdef __3DS__
 			if (gameloop_abort)
 			{
@@ -1670,7 +1682,13 @@ void D_DoomLoop ()
 			{
 				D_Display ();
 			}
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Sound);
+#endif
 			S_UpdateMusic();
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Sound);
+#endif
 
 			if (gameloop_abort)
 			{

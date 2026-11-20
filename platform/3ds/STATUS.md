@@ -82,58 +82,62 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 ## Prueba 55
 
 **Lo que se pidió:**
-- [x] vid_vsync=false por defecto en 3DS (i_interface.cpp:58, patrón como vid_fps), sin quitar la opción de ponerlo a true en el ini.
-- [x] Desglosar `ot` (~4,7 ms): overhead pre-escena (I_StartTic, D_ProcessEvents, D_Display hasta TC_Scene3D), S_UpdateMusic, C3D_FrameEnd. Nueva categoría TC_Overhead en c3d_diag.h.
-- [x] Desglosar `hd` (~4,5 ms): HUD (DrawOverlays, CallDraw), envío a GPU (Draw2D → ScreenBegin). Nueva categoría TC_HDGPU en c3d_diag.h; TC_HUD2D se reduce a solo DrawOverlays.
-- [x] Contar llamadas 2D por imagen (Draw2D calls).
-- [x] Campos ov (overhead avg/worst en ms) y d2 (2D draws/frame) en [FPS].
+- [x] vid_vsync=false por defecto en 3DS (i_interface.cpp, patrón como vid_fps), sin quitar la opción de ponerlo a true en el ini.
+- [x] Desglosar `ot` (~4,7 ms) en 4 campos separados:
+  - `in`: I_StartTic + D_ProcessEvents (TC_Input).
+  - `snd`: S_UpdateMusic (TC_Sound).
+  - `pre`: D_Display antes de TC_Scene3D (TC_PreDisplay).
+  - `fe`: C3D_FrameEnd (TC_FrameEnd).
+- [x] Desglosar `hd` (~4,5 ms): HUD (DrawOverlays → TC_HDHud), envío a GPU (Draw2D → TC_HDGPU).
+- [x] Contar llamadas 2D por imagen (d2).
+- [x] Campos in, snd, pre, fe (avg/worst en ms) y d2 en [FPS]. Se elimina `ot`.
 - [x] Nada más en esta prueba.
 
-**Pregunta:** ¿El desglose de `ot` y `hd` identifica dónde se va el tiempo extra que impide los 60 fps?
+**Pregunta:** ¿El desglose de `ot` (in, snd, pre, fe) y `hd` (hdHud, hdGpu) identifica dónde se va el tiempo extra que impide los 60 fps?
 
 **Lo que ya sabemos (con la prueba que lo mostró):**
 - Punto 16: logs fiables con `fsync`.
 - Prueba 54: sin vsync avg ~21 ms/imagen (~44 fps); `ot` ~4,7 ms, `hd` ~4,5 ms, `sc` ~8 ms, `lo` ~2 ms. Meta: 16,7 ms/imagen (60 fps).
 - Prueba 53: tiempos en ms, worst por ventana, GPU real citro3d (gr/pr).
-- i_interface.cpp:58 patrón `#ifdef __3DS__` para defaults de cvars.
+- i_interface.cpp:58 patrón `#ifdef __3DS__` para defaults de cvars. vid_vsync definido en v_video.cpp:185 (default false global).
 - D_DoomLoop (d_main.cpp:1655-1673): I_StartFrame → TryRunTics → I_StartTic → D_ProcessEvents → D_Display → S_UpdateMusic.
 - Hooks actuales: TC_Scene3D en d_main.cpp:1280-1579, TC_HUD2D en d_main.cpp:1580-1585.
 - `ot` = avg − (lo + sc + hd): incluye I_StartTic, D_ProcessEvents, NetUpdate, S_UpdateMusic, D_Display pre-scene, C3D_FrameEnd, y overhead no medido.
 - `hd` incluye DrawOverlays, FPS counter, Draw2D GPU send (c3d_framebuffer.cpp:275-280).
 
-**Hipótesis A:** `ot` se va en overhead del motor (I_StartTic, D_ProcessEvents, D_Display pre-scene) y C3D_FrameEnd; `hd` se va en Draw2D GPU send.
-- El log mostrará: `ov` alto (>2 ms avg), `hd` con hdGPU > hdHud (más tiempo enviando a GPU que dibujando HUD). Con vsync=false por defecto, avg baja hacia 16-17 ms si se reducen ov y hd.
-**Hipótesis B:** `ot` es bajo (<1 ms) y `hd` domina (hdHud >2 ms); el cuello de botella es `sc` (~8 ms).
-- El log mostrará: `ov` bajo, hdHud alto. avg sigue >17 ms porque `sc` consume el presupuesto. Habría que atacar `sc` en la siguiente prueba.
+**Hipótesis A:** El overhead de `ot` se reparte entre input (in >1 ms), pre-scene (pre >1 ms) o FrameEnd (fe >1 ms); `hd` se va en envío GPU (hdGpu > hdHud).
+- El log mostrará: uno o más de in/snd/pre/fe >1 ms avg, hdGpu > hdHud. Con vsync=false, avg baja pero no llega a 16,7 ms porque hay overhead significativo.
+**Hipótesis B:** Los 4 campos de `ot` son bajos (<0,5 ms cada uno) y `hd` es bajo también; el cuello de botella es `sc` (~8 ms).
+- El log mostrará: in, snd, pre, fe <0,5 ms cada uno; hdHud + hdGpu <3 ms. avg >17 ms porque `sc` consume el presupuesto. Habría que atacar `sc` en la siguiente prueba.
 
-**Única variable que cambia:** c3d_diag.h, c3d_diag.cpp, i_interface.cpp, d_main.cpp, c3d_framebuffer.cpp, bajo `#ifdef __3DS__`:
-1. c3d_diag.h:51: añadir TC_Overhead y TC_HDGPU a TimingCategory (TC_COUNT sube a 9).
+**Única variable que cambia:** c3d_diag.h, c3d_diag.cpp, d_main.cpp, c3d_framebuffer.cpp, bajo `#ifdef __3DS__`:
+1. c3d_diag.h:51: añadir TC_Input, TC_Sound, TC_PreDisplay, TC_FrameEnd, TC_HDHud, TC_HDGPU a TimingCategory (TC_COUNT sube de 7 a 13).
 2. c3d_diag.cpp:48-54: arrays TimingBeginTicks/Frame/Worst/Window ya usan TC_COUNT, se redimensionan solos.
-3. i_interface.cpp:58-62: `#ifdef __3DS__ CVAR(Bool, vid_vsync, false, 0)` para forzar vsync=false por defecto (patrón como vid_fps en l.58-62).
-4. d_main.cpp:1655-1673: TimingBegin(TC_Overhead) antes de I_StartFrame; TimingEnd(TC_Overhead) después de S_UpdateMusic.
+3. d_main.cpp:1655-1673: TimingBegin/End(TC_Input) alrededor de I_StartTic + D_ProcessEvents; TimingBegin/End(TC_Sound) alrededor de S_UpdateMusic.
+4. d_main.cpp:1257-1280: TimingBegin/End(TC_PreDisplay) alrededor de D_Display pre-scene (líneas 1257-1278, antes de TC_Scene3D).
 5. d_main.cpp:1579-1585: TC_Scene3D end → TC_HDHud begin → DrawOverlays → TC_HDHud end → TC_HDGPU begin → End2DAndUpdate → TC_HDGPU end.
-6. c3d_diag.cpp:144 [FPS]: añadir `ov=%.1f/%.1f d2=%.1f` al final. Contar 2D draws en Draw2D() de c3d_framebuffer.cpp:275.
-7. c3d_framebuffer.cpp:482: TimingBegin/End(TC_Overhead) alrededor de C3D_FrameEnd.
+6. c3d_diag.cpp:144 [FPS]: eliminar `ot`, añadir `in=%.1f/%.1f snd=%.1f/%.1f pre=%.1f/%.1f fe=%.1f/%.1f d2=%d`. Contar 2D draws estático.
+7. c3d_framebuffer.cpp:482: TimingBegin/End(TC_FrameEnd) alrededor de C3D_FrameEnd.
 
 **Pasadas en la consola:**
 | Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
 |---|---|---|
-| A | ninguno | Jugar MAP01-MAP02 3 min; log con `[FPS]` con ov y d2 |
+| A | ninguno | Jugar MAP01 y MAP02 3 min; log con `[FPS]` con in, snd, pre, fe y d2 |
 
 **Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 55`.
 
 **Autocomprobación:**
-1. **Tabla de diferencias.** Una sola pasada A. Se añaden mediciones de timing (nuevas categorías TC_Overhead, TC_HDGPU, TC_HDHud) y un default de cvar; no cambia comportamiento del juego, solo diagnóstico. El [FPS] gana dos campos (ov, d2). vid_vsync=false por defecto ya se probó en la 54B; aquí solo es el default.
-2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra ov >2 ms avg o hdGPU > hdHud (ot y hd son el problema); B muestra ov <1 ms y hdHud >2 ms con sc ~8 ms dominante (sc es el problema).
-3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[FPS]` con ov y d2. La pantalla muestra gameplay normal a ~44 fps sin vsync.
-4. **¿Se resuelve en una sola compilación?** Sí: una pasada A con 3 min de gameplay. Los datos del log identifican si ov/hd o sc son el cuello de botella.
-5. **¿Cada afirmación sobre una API tiene su fuente?** TimingBegin/End en c3d_diag.h:52-53, TimingCategory enum en c3d_diag.h:51 (TC_COUNT sube a 9). vid_vsync en v_video.cpp:185 (CUSTOM_CVAR). Patrón `#ifdef __3DS__` CVAR en i_interface.cpp:58-62 (vid_fps). D_DoomLoop en d_main.cpp:1655-1673. Hooks Scene3D en d_main.cpp:1280 y 1579. Hooks HUD2D en d_main.cpp:1580-1585. Draw2D en c3d_framebuffer.cpp:275-280. C3D_FrameEnd en c3d_framebuffer.cpp:482.
-6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Con una pasada: si ov >2 ms → A (overhead del motor es el problema). Si ov <1 ms y sc ~8 ms → B (sc domina). Si hdGPU > hdHud → A (envío GPU es el problema en hd). Si todos bajos y avg ~16 ms → ya estamos cerca de 60 fps.
+1. **Tabla de diferencias.** Una sola pasada A. Se añaden mediciones de timing (6 nuevas categorías) y se elimina `ot`; no cambia comportamiento del juego, solo diagnóstico. El [FPS] gana 5 campos (in, snd, pre, fe, d2). vid_vsync=false por defecto ya se probó en la 54B.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra in/snd/pre/fe >1 ms avg o hdGpu > hdHud (componentes de ot y hd son el problema); B muestra los 4 campos <0,5 ms y hd <3 ms con sc ~8 ms dominante (sc es el problema).
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[FPS]` con in, snd, pre, fe y d2. La pantalla muestra gameplay normal a ~44 fps sin vsync.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A con MAP01 y MAP02, 3 min de gameplay. Los datos del log identifican qué componente es el cuello de botella.
+5. **¿Cada afirmación sobre una API tiene su fuente?** TimingBegin/End en c3d_diag.h:52-53, TimingCategory enum en c3d_diag.h:51 (TC_COUNT sube a 13). vid_vsync en v_video.cpp:185 (CUSTOM_CVAR). Patrón `#ifdef __3DS__` CVAR en i_interface.cpp:58-62 (vid_fps). D_DoomLoop en d_main.cpp:1655-1673. Hooks Scene3D en d_main.cpp:1280 y 1579. Hooks HUD2D en d_main.cpp:1580-1585. Draw2D en c3d_framebuffer.cpp:275-280. C3D_FrameEnd en c3d_framebuffer.cpp:482.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Con una pasada: si algún campo de ot >1 ms → A (ese componente es el problema de ot). Si hdGpu > hdHud → A (envío GPU es el problema en hd). Si todos <0,5 ms y sc ~8 ms → B (sc domina). Si todos bajos y avg ~16 ms → ya estamos cerca de 60 fps.
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una pasada, sin archivos de control.
-8. **¿Lo que vas a añadir ya existe?** TimingBegin/End, TimingCategory, TimingWindow/Worst son variables existentes en c3d_diag.cpp. TC_Overhead y TC_HDGPU son nuevos valores del enum. TimingTicsWindow es variable existente. vid_vsync es cvar existente, solo cambia el default en 3DS. No se crea función ni archivo nuevo.
-9. **¿Qué se ejecuta después de tu cambio?** Cada frame: I_StartFrame → TryRunTics (medido como TC_Logic) → I_StartTic → D_ProcessEvents → D_Display (TC_Scene3D + TC_HDHud + TC_HDGPU) → S_UpdateMusic → C3D_FrameEnd. Todo envuelto en TC_Overhead excepto lo que ya tiene su categoría. [FPS] acumula y muestra ov=dual y d2=media. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+8. **¿Lo que vas a añadir ya existe?** TimingBegin/End, TimingCategory, TimingWindow/Worst son variables existentes en c3d_diag.cpp. 6 nuevos valores del enum. TimingTicsWindow es variable existente. vid_vsync es cvar existente. Contador d2 es variable estática nueva. No se crea función ni archivo nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: I_StartFrame → TryRunTics (medido como TC_Logic) → I_StartTic + D_ProcessEvents (TC_Input) → D_Display pre-scene (TC_PreDisplay) → TC_Scene3D → TC_HDHud → TC_HDGPU → S_UpdateMusic (TC_Sound) → C3D_FrameEnd (TC_FrameEnd). [FPS] acumula y muestra los 4 campos de ot como avg/worst más d2=entero. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
 ## Prueba 53
 

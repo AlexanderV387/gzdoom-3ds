@@ -48,10 +48,15 @@ void MenuDiagRecordScissor(int l, int t, int r, int b);	// record one scissor ca
 bool MenuDiagEmitScissor();						// log scissor summary for current frame, returns true if logged
 
 // Per-frame timing breakdown (test 52): measure elapsed time per category per frame
-enum TimingCategory { TC_Logic = 0, TC_Scene3D, TC_HUD2D, TC_GPUWait, TC_Texture, TC_Music, TC_COUNT };
+// test 55: TC_HUD2D split into TC_HDHud + TC_HDGPU; ot broken into 4 categories
+enum TimingCategory {
+    TC_Logic = 0, TC_Scene3D, TC_HDHud, TC_HDGPU, TC_GPUWait, TC_Texture,
+    TC_Music, TC_Input, TC_Sound, TC_PreDisplay, TC_FrameEnd, TC_COUNT
+};
 void TimingBegin(int category);	// mark start: stores svcGetSystemTick() internally
 void TimingEnd(int category);	// mark end: adds elapsed ticks if begin was called, then clears
 extern int TimingTicsWindow;	// tics executed per window (accumulated from d_net.cpp)
+extern int Timing2DDrawsWindow;	// 2D draw calls per window (counted in Draw2D)
 
 }
 }
