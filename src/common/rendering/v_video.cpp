@@ -182,7 +182,7 @@ CVAR (Int, vid_defwidth, 640, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Int, vid_defheight, 480, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Bool, ticker, false, 0)
 
-CUSTOM_CVAR (Bool, vid_vsync, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Bool, vid_vsync, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 {
 	if (screen != NULL)
 	{
@@ -192,6 +192,13 @@ CUSTOM_CVAR (Bool, vid_vsync, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
 // [RH] Set true when vid_setmode command has been executed
 bool setmodeneeded = false;
+
+#ifdef __3DS__
+CUSTOM_CVAR(Float, c3d_depthbias, 1.0f/65536.0f, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+{
+	if (screen != NULL) Printf("Applying c3d_depthbias: %f\n", self);
+}
+#endif
 
 #ifdef __3DS__
 CUSTOM_CVAR(Float, c3d_depthbias, 1.0f/65536.0f, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
