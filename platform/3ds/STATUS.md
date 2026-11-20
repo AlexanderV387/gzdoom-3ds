@@ -431,9 +431,9 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 ## Prueba 56
 
 **Lo que se pidió:**
-- [ ] Medir la iteración completa de `D_DoomLoop` (`src/d_main.cpp`) como "it" para comprobar que `it ≈ avg`.
-- [ ] Medir por separado en el bucle: `GC::CheckGC` (recolector de ZScript), `NetUpdate` y cualquier espera o `sleep` (citar con `grep`).
-- [ ] Corregir `d2`: debe contar los comandos 2D que se envían a la GPU por imagen (cada dibujo 2D en `c3d`), no las imágenes.
+- [ ] Medir la iteración completa de `D_DoomLoop` (`src/d_main.cpp`) como "it" (al inicio y fin del `for(;;)` loop) para comprobar que `it ≈ avg`.
+- [ ] Medir por separado en el bucle: `GC::CheckGC` (recolector de ZScript), `NetUpdate` y cualquier espera o `sleep` (`I_WaitForTic`, `I_WaitVBL`) como `TC_Wait` (citar con `grep`).
+- [ ] Corregir `d2`: debe contar cada comando 2D que se dibuja dentro de `::Draw2D` (en el bucle de `src/common/rendering/hwrenderer/hw_draw2d.cpp`), no las imágenes.
 
 **Pregunta:** ¿El desglose de la iteración (`it`) y los componentes individuales (`gc`, `net`, `wait`) junto con la corrección de `d2` (comandos 2D en lugar de imágenes) identifica el origen del tiempo extra?
 
@@ -451,11 +451,11 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 **Hipótesis B:** El tiempo extra se debe a la carga de la GPU o al procesamiento de la escena 3D (ya medidos en pruebas anteriores), y los nuevos campos (`gc`, `net`, `wait`, `it`) son bajos.
 - El log mostrará: `it`, `gc`, `net`, `wait` bajos (< 0,5 ms), y `d2` (comandos 2D) similar a lo que se esperaba de las imágenes.
 
-**Única variable que cambia:** `src/d_main.cpp`, `src/common/rendering/c3d/c3d_diag.h` y `src/common/rendering/c3d/c3d_diag.cpp`, y `src/common/rendering/c3d/c3d_framebuffer.cpp`, bajo `#ifdef __3DS__`:
+**Única variable que cambia:** `src/d_main.cpp`, `src/common/rendering/c3d/c3d_diag.h` y `src/common/rendering/c3d/c3d_diag.cpp`, `src/common/rendering/c3d/c3d_framebuffer.cpp` y `src/common/rendering/hwrenderer/hw_draw2d.cpp`, bajo `#ifdef __3DS__`:
 1. `c3d_diag.h`: añadir `TC_Loop`, `TC_GC`, `TC_Net`, `TC_Wait` a `TimingCategory`.
 2. `c3d_diag.cpp`: implementar las nuevas categorías y el formato `[FPS]` con `it, gc, net, wait, d2`.
-3. `d_main.cpp`: añadir `TimingBegin/End` para `TC_Loop` en `D_DoomLoop`, y para `TC_GC` y `TC_Net` donde se llaman.
-4. `c3d_framebuffer.cpp`: incrementar contador `d2` en cada llamada a `Draw2D`.
+3. `d_main.cpp`: añadir `TimingBegin/End` para `TC_Loop` en el `for(;;)` de `D_DoomLoop`, y para `TC_GC` y `TC_Net` donde se llaman.
+4. `hw_draw2d.cpp`: incrementar contador `d2` en el bucle de comandos.
 
 **Pasadas en la consola:**
 | Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
@@ -471,10 +471,199 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra componentes nuevos altos o `d2` alto; B muestra componentes nuevos bajos.
 3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[FPS]` con `it, gc, net, wait, d2`.
 4. **¿Se resuelve en una sola compilación?** Sí: una pasada A.
-5. **¿Cada afirmación sobre una API tiene su fuente?** `D_DoomLoop` en d_main.cpp:1655, `GC::CheckGC` en d_main.cpp:1263, `NetUpdate` en d_net.cpp:2225, `Draw2D` en c3d_framebuffer.cpp:280.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `D_DoomLoop` en d_main.cpp:1655, `GC::CheckGC` en d_main.cpp:1263, `NetUpdate` en d_net.cpp:2225, `Draw2D` en c3d_framebuffer.cpp:280, y `I_WaitForTic`/`I_WaitVBL` en d_net.cpp.
 6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si `it` es casi igual a `avg` y los nuevos campos son bajos, el tiempo se va en lo que ya medimos (`sc`, `hd`, `gu`).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `TimingBegin/End`, `TimingCategory`, `TimingWindow/Worst` son variables existentes en `c3d_diag.cpp`. 4 nuevos valores del enum. `TimingTicsWindow` es variable existente. `d2` es una variable estática nueva en `hw_draw2d.cpp`. No se crea función ni archivo nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: `I_StartFrame` → `D_DoomLoop` (medido como `TC_Loop`) → `I_StartTic` + `D_ProcessEvents` (TC_Input) → `D_Display` pre-scene (TC_PreDisplay) → `TC_Scene3D` → `TC_HUD2D` → `TC_HDHud` → `TC_HDGPU` → `S_UpdateMusic` (TC_Sound) → `C3D_FrameEnd` (TC_FrameEnd). `[FPS]` acumula y muestra los nuevos campos con `it, gc, net, wait` y `d2`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
 8. **¿Lo que vas a añadir ya existe?** `TimingBegin/End`, `TimingCategory`, `TimingWindow/Worst` son variables existentes en `c3d_diag.cpp`. 4 nuevos valores del enum. `TimingTicsWindow` es variable existente. `d2` es una variable estática nueva en `c3d_framebuffer.cpp`. No se crea función ni archivo nuevo.
 9. **¿Qué se ejecuta después de tu cambio?** Cada frame: `I_StartFrame` → `TryRunTics` (medido como `TC_Loop`) → `I_StartTic` + `D_ProcessEvents` (TC_Input) → `D_Display` pre-scene (TC_PreDisplay) → `TC_Scene3D` → `TC_HDHud` → `TC_HDGPU` → `S_UpdateMusic` (TC_Sound) → `C3D_FrameEnd` (TC_FrameEnd). `[FPS]` acumula y muestra los nuevos campos con `it, gc, net, wait` y `d2`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
 
+
+## Prueba 57
+
+**Lo que se pidió:**
+- [ ] En `c3d_renderstate.cpp`: si existe `sdmc:/3ds/gzdoom/c3d-noflush.txt`, no llamar a `GSPGPU_FlushDataCache` en las líneas 609, 637 y 639.
+- [ ] En `c3d_diag.cpp`: leer el interruptor `c3d-noflush.txt` (como los otros `[C3D]` switches) y añadirlo al log `[FPS]`.
+
+**Pregunta:** ¿Evitar las llamadas redundantes a `GSPGPU_FlushDataCache` mejora el rendimiento o causa basura gráfica?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Cada dibujo llama a `GSPGPU_FlushDataCache` (c3d_renderstate.cpp:609, 637 y 639), que es una llamada lenta al servicio GSP.
+- Son redundantes: `C3D_FrameEnd(0)` (c3d_framebuffer.cpp:486) ya vacía toda la memoria lineal al final de cada imagen (citro3d renderqueue.c, C3D_FrameEnd; hecho F5).
+
+**Hipótesis A:** Al quitar las llamadas redundantes, el tiempo de dibujo baja y no hay basura gráfica.
+- La pasada B (con el archivo) mostrará: `[C3D] NoDraw=0 NoTex=0 Triangle=0 MinimalShader=0 TestFlip=0 MenuDiag=0 NoFlush=1` y no habrá problemas visuales. Los tiempos `sc` y `hdG` bajarán varios ms y los `avg` FPS subirán respecto a la pasada A.
+
+**Hipótesis B:** Al quitar las llamadas redundantes, aparece basura gráfica (triángulos rotos, parpadeos) porque algo necesita ese flush, o los tiempos de dibujo no cambian significativamente.
+- La pasada B (con el archivo) mostrará: `[C3D] NoDraw=0 NoTex=0 Triangle=0 MinimalShader=0 TestFlip=0 MenuDiag=0 NoFlush=1` y Alex reportará basura gráfica o tiempos similares a la pasada A.
+
+**Única variable que cambia:** `c3d_renderstate.cpp` y `c3d_diag.cpp`, bajo `#ifdef __3DS__`:
+1. `c3d_renderstate.cpp`: si existe `sdmc:/3ds/gzdoom/c3d-noflush.txt`, no llamar a esas tres `GSPGPU_FlushDataCache` (se consulta el bool `NoFlush` previamente cargado).
+2. `c3d_diag.h`: añadir `extern bool NoFlush;`.
+3. `c3d_diag.cpp`: leer el interruptor y añadir `noflush=%d` a la línea de switches (l.91) y a la de `[FPS]` (l.155). El buffer `buf[512]` es suficiente para los ~410 chars previstos.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Jugar MAP01-MAP02 3 min; log con `[FPS]` (comportamiento actual) |
+| B | `c3d-noflush.txt` | Jugar MAP01-MAP02 3 min; ¿hay basura gráfica? |
+
+**Marcadores que se quedan:** la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 57`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola variable: el uso de `GSPGPU_FlushDataCache`. Pasada A (sin archivo) = actual. Pasada B (con archivo) = sin las llamadas.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A (sin basura, mejora rendimiento); B (con basura).
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[FPS]` con el flag del interruptor. La pantalla muestra gameplay normal o con basura.
+4. **¿Se resuelve en una sola compilación?** Sí: dos pasadas A y B con el mismo `.3dsx`.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `GSPGPU_FlushDataCache` (c3d_renderstate.cpp:609, 637, 639); `C3D_FrameEnd` (c3d_framebuffer.cpp:486); hecho F5.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si en B hay basura → B. Si en B no hay basura y el tiempo baja → A.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: solo poner o quitar el archivo en la SD.
+8. **¿Lo que vas a añadir ya existe?** El patrón de lectura de interruptores en `c3d_diag.cpp` y el uso de `GSPGPU_FlushDataCache` en `c3d_renderstate.cpp` ya existen. No se crea nada nuevo, solo se condiciona.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: `C3D_FrameBegin` → `C3D_FrameEnd` (con o sin flush según el archivo). El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
+## Prueba 58
+
+**Lo que se pidió:**
+- [x] En `c3d_renderstate.cpp`: quitar las tres llamadas a `GSPGPU_FlushDataCache` (cerca de las líneas 610, 640 y 644).
+- [x] Quitar el interruptor `c3d-noflush` (ya que `C3D_FrameEnd(0)` ya vacía la caché, hecho F5).
+
+**Pregunta:** ¿Al quitar las llamadas redundantes y el interruptor, el rendimiento se mantiene y no hay basura gráfica?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Prueba 57: sin las tres `GSPGPU_FlushDataCache`, el rendimiento sube (~45 a ~57 fps) y `hdG` baja (5 a 1,5 ms), sin basura gráfica.
+- Hecho F5: `C3D_FrameEnd(0)` ya vacía la memoria lineal al final de cada imagen.
+
+**Hipótesis A:** El cambio es seguro. El rendimiento se mantiene igual que en la pasada B de la 57 y no hay basura gráfica.
+- Si A es cierta, el log mostrará: sin el flag `NoFlush` y con tiempos de dibujo bajos.
+
+**Hipótesis B:** Al quitar las llamadas, aparece basura gráfica.
+- Si B es cierta, Alex reportará basura gráfica.
+
+**Única variable que cambia:**
+`c3d_renderstate.cpp` y `c3d_diag.cpp`, bajo `#ifdef __3DS__`: eliminar las llamadas a `GSPGPU_FlushDataCache` y el código de lectura del interruptor `c3d-noflush.txt`.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Jugar MAP01-MAP02 3 min; rendimiento normal y sin basura gráfica |
+
+**Marcadores que se quedan:** la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 58`
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola variable: el uso de `GSPGPU_FlushDataCache` (se quita). No hay pasadas comparativas de shader.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí. A (sin basura, rendimiento OK); B (con basura).
+3. **¿Lo que dices que se verá en pantalla puede verse?** Sí, Alex verá si hay basura gráfica o no.
+4. **¿Se resuelve en una sola compilación?** Sí.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `GSPGPU_FlushDataCache` (c3d_renderstate.cpp:609, 637, 639); `C3D_FrameEnd` (c3d_framebuffer.cpp:486); hecho F5.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si no hay basura pero el rendimiento no mejora, que la redundancia no era el problema principal (pero ya sabemos que sí lo era por la 57).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí.
+8. **¿Lo que vas a añadir ya existe?** Se elimina código existente.
+9. **¿Qué se ejecuta después de tu cambio?** `C3D_FrameBegin` → `C3D_FrameEnd`. El log sigue abierto.
+
+## Prueba 59
+
+**Lo que se pidió:**
+- [x] Implementar el desplazamiento de profundidad (`SetDepthBias`) solicitado por el motor.
+- [x] `SetDepthBias(-1,-128)` en `src/rendering/hwrenderer/scene/hw_walls.cpp:129` y `hw_sprites.cpp:165`.
+- [x] `SetDepthBias(1,128)` en `hw_flats.cpp:254`.
+- [x] En `C3DRenderState::Apply`, cuando cambie `mBias`, llamar a `C3D_DepthMap(true, -1.0f, mBias.mUnits * c3d_depthbias)`.
+- [x] `c3d_depthbias` es un nuevo CVAR float, por defecto `1.0/65536`.
+- [x] Loguear una vez el valor usado de `c3d_depthbias`.
+
+**Pregunta:** ¿El uso de `SetDepthBias` mediante `C3D_DepthMap` elimina el parpadeo de las manchas de sangre y balas?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- El estado de profundidad está en `mBias` (`src/common/rendering/hwrenderer/data/hw_renderstate.h:258, 610-624`).
+- El motor pide desplazamientos de profundidad para sangre/balas y planos, pero el backend c3d no los aplica.
+- citro3d `effect.c:10` usa `C3D_DepthMap(true, -1.0f, value)`.
+
+**Hipótesis A:** El arreglo funciona. Las manchas de sangre y balas dejan de parpadear.
+- Si A es cierta, el log mostrará: `[C3D] depthbias=0.000015` (o similar) y Alex no verá parpadeo.
+
+**Hipótesis B:** El arreglo no funciona o causa otros problemas (como falta de profundidad en otros elementos).
+- Si B es cierta, el parpadeo persiste o la imagen se rompe.
+
+**Única variable que cambia:**
+`src/common/rendering/hwrenderer/data/hw_renderstate.h`, `src/common/rendering/c3d/c3d_renderstate.cpp`, `src/rendering/hwrenderer/scene/hw_walls.cpp`, `src/rendering/hwrenderer/scene/hw_sprites.cpp`, `src/rendering/hwrenderer/scene/hw_flats.cpp`, y la definición del nuevo CVAR `c3d_depthbias`.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | `c3d_depthbias=0.000015` (o similar) en el ini | Jugar MAP01-MAP02 3 min; ¿parpadean las manchas de sangre/balas? |
+
+**Marcadores que se quedan:** la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 59`
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola variable: el uso de `C3D_DepthMap` condicionado a `mBias` y el nuevo CVAR `c3d_depthbias`.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí. A (sin parpadeo, log con bias); B (con parpadeo o imagen rota).
+3. **¿Lo que dices que se verá en pantalla puede verse?** Sí, el parpadeo es visible.
+4. **¿Se resuelve en una sola compilación?** Sí.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `SetDepthBias` (hw_walls.cpp:129, hw_sprites.cpp:165, hw_flats.cpp:254); `mBias` (hw_renderstate.h:258, 610-624); `C3D_DepthMap` (citro3d effect.c:10).
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si el parpadeo persiste, que el error no es el desplazamiento de profundidad o que el valor/llamada no es el correcto.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí.
+8. **¿Lo que vas a añadir ya existe?** Se añade un nuevo CVAR y se usa una función de citro3d existente.
+9. **¿Qué se ejecuta después de tu cambio?** `C3DRenderState::Apply` → `C3D_DepthMap`. El log sigue abierto.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola variable: el uso de `GSPGPU_FlushDataCache` (se quita). No hay pasadas comparativas de shader.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí. A (sin basura, rendimiento OK); B (con basura).
+3. **¿Lo que dices que se verá en pantalla puede verse?** Sí, Alex verá si hay basura gráfica o no.
+4. **¿Se resuelve en una sola compilación?** Sí.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí: `GSPGPU_FlushDataCache` (c3d_renderstate.cpp:609, 637, 639); `C3D_FrameEnd` (c3d_framebuffer.cpp:486); hecho F5.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si no hay basura pero el rendimiento no mejora, que la redundancia no era el problema principal (pero ya sabemos que sí lo era por la 57).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí.
+8. **¿Lo que vas a añadir ya existe?** Se elimina código existente.
+9. **¿Qué se ejecuta después de tu cambio?** `C3D_FrameBegin` → `C3D_FrameEnd`. El log sigue abierto.
+
+
+## Prueba 60
+
+**Lo que se pidió:**
+- [x] Eliminar `GSPGPU_FlushDataCache` (líneas 650 y 654 de `src/common/rendering/c3d/c3d_renderstate.cpp`) y todo el mecanismo `NoFlush` (`c3d_diag.h`/`.cpp` y switches).
+- [x] Cambiar el valor por defecto del CVAR `c3d_depthbias` a `-0.00005`.
+
+**Pregunta:** ¿Con los cambios aplicados se eliminan las llamadas redundantes de flush y mejora la estabilidad visual con un depth bias corregido?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Los flushes pueden impactar el rendimiento o no ser necesarios.
+- CVARs en 3DS se definen bajo `#ifdef __3DS__`.
+
+**Hipótesis A:** Los cambios funcionan y eliminan las llamadas innecesarias sin efectos secundarios, mejorando la visualización de sangre/agujeros.
+- Si A es cierta, el log no contendrá rastros de `NoFlush` ni `GSPGPU_FlushDataCache`, y se verá lo esperado.
+
+**Hipótesis B:** La eliminación del flush o el cambio de bias causa efectos secundarios visuales o crashes.
+- Si B es cierta, el log mostrará errores o se verá inconsistencia visual (parpadeo).
+
+**Única variable que cambia:** 
+1. `src/common/rendering/c3d/c3d_renderstate.cpp`: borradas líneas de flush y condicional `NoFlush`.
+2. `src/common/rendering/c3d/c3d_diag.h` y `.cpp`: eliminación del interruptor `NoFlush`.
+3. CVAR `c3d_depthbias` default en 3DS.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Sangre y agujeros de bala visibles, sin parpadeo. |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 60`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** No hay pasadas comparativas, solo un cambio de estado y de default.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A confirma la limpieza; B muestra fallos o parpadeo.
+3. **¿Lo que dices que se verá en pantalla puede verse?** Sí (sangre/agujeros).
+4. **¿Se resuelve en una sola compilación?** Sí.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Sí.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Que la limpieza es correcta pero no influye en lo visual.
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí.
+8. **¿Lo que vas a añadir ya existe?** No se añade nada nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** El loop normal del juego con el novo bias y sin flushes.
