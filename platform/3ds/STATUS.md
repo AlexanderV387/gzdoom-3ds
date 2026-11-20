@@ -428,8 +428,43 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **¿Lo que vas a añadir ya existe?** `threadCreate` es la misma llamada de la prueba 50. `APT_SetAppCpuTimeLimit` y `APT_GetAppCpuTimeLimit` son de libctru (`<3ds.h>` ya incluido en oalsound.h:29). No se crea función ni variable nueva.
 9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar la música. `BackgroundProc` corre en el hilo del núcleo asignado. El destructor usa `threadJoin`/`threadFree`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
-## Prueba 56
+## Prueba 61
 
+**Lo que se pidió:**
+- [ ] **[WIPE]:** Encontrar por qué el efecto de wipe (wipetype=1) no se ve entre pantallas. Añadir marcas `[WIPE]` en los cambios de pantalla indicando: tipo de wipe, si `WipeStartScreen` y `WipeEndScreen` devuelven textura o `nullptr`, y si se dibuja algún paso del efecto. Citar líneas.
+- [ ] **[LOAD]:** Analizar el arranque (~20 s hasta "Init complete"). Añadir marcas `[load] T+` en:
+    - `M_LoadDefaults` $\to$ `W_Init` (1,6 s).
+    - Carga de `doom2.wad` (~2,9 s). Comprobar si hay MD5.
+    - `S_Init` $\to$ `I_Init` (2,2 s).
+    - `Texman.Init` $\to$ `textures added` (4,8 s).
+    - `LoadActors` (3,8 s).
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- El wipe actual solo muestra un salto de pantalla sin efecto visual en 3DS.
+- Los tiempos de arranque conocidos son: `M_LoadDefaults` $\to$ `W_Init` (1,6 s); añadir `doom2.wad` (~2,9 s); `S_Init` $\to$ `I_Init` (2,2 s); `Texman.Init` $\to$ `textures added` (4,8 s); `LoadActors` (3,8 s).
+
+**Hipótesis A (WIPE):** Las funciones `WipeStartScreen`/`EndScreen` devuelven `nullptr` en 3DS o las texturas creadas no son válidas para el driver.
+- Si A es cierta, el log mostrará: `[WIPE] type=1, start=nullptr, end=...` o similar.
+
+**Pasadas en la consola** (cada una con su log; el dueño renombra log.txt a log-A.txt, log-B.txt...):
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Comprobar si hay wipe visual y ver los tiempos de arranque en el log. |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 61`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** N/A (es una sola pasada para recoger datos).
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra `nullptr` o B muestra un tiempo largo en la carga del IWAD.
+3. **¿Lo que dices que se verá en pantalla puede verse?** Sí, el wipe (o la falta de él) es visible.
+4. **¿Se resuelve en una sola compilación?** Sí, para recoger los datos.
+5. **¿Cada afirmación sobre una API tiene su fuente?** Se usará `grep` y lectura de archivos para las citas.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si no hay wipe y no hay error en texturas, la causa es el dibujo (`PerformWipe`).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí.
+8. **¿Lo que vas a añadir ya existe?** No, se añaden nuevas marcas de log.
+9. **¿Qué se ejecuta después de tu cambio?** El motor arranca y llega al gameplay.
 **Lo que se pidió:**
 - [ ] Medir la iteración completa de `D_DoomLoop` (`src/d_main.cpp`) como "it" (al inicio y fin del `for(;;)` loop) para comprobar que `it ≈ avg`.
 - [ ] Medir por separado en el bucle: `GC::CheckGC` (recolector de ZScript), `NetUpdate` y cualquier espera o `sleep` (`I_WaitForTic`, `I_WaitVBL`) como `TC_Wait` (citar con `grep`).
