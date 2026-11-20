@@ -428,3 +428,53 @@ Es el único estado válido del port. Se actualiza al cerrar cada prueba: la tab
 8. **¿Lo que vas a añadir ya existe?** `threadCreate` es la misma llamada de la prueba 50. `APT_SetAppCpuTimeLimit` y `APT_GetAppCpuTimeLimit` son de libctru (`<3ds.h>` ya incluido en oalsound.h:29). No se crea función ni variable nueva.
 9. **¿Qué se ejecuta después de tu cambio?** `CreateStream` se llama al iniciar la música. `BackgroundProc` corre en el hilo del núcleo asignado. El destructor usa `threadJoin`/`threadFree`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
 
+## Prueba 56
+
+**Lo que se pidió:**
+- [ ] Medir la iteración completa de `D_DoomLoop` (`src/d_main.cpp`) como "it" para comprobar que `it ≈ avg`.
+- [ ] Medir por separado en el bucle: `GC::CheckGC` (recolector de ZScript), `NetUpdate` y cualquier espera o `sleep` (citar con `grep`).
+- [ ] Corregir `d2`: debe contar los comandos 2D que se envían a la GPU por imagen (cada dibujo 2D en `c3d`), no las imágenes.
+
+**Pregunta:** ¿El desglose de la iteración (`it`) y los componentes individuales (`gc`, `net`, `wait`) junto con la corrección de `d2` (comandos 2D en lugar de imágenes) identifica el origen del tiempo extra?
+
+**Lo que ya sabemos (con la prueba que lo mostró):**
+- Prueba 55: `in/snd/pre/fe ≈ 0`, `hdH 0,3 ms`, `hdG ~4,6 ms` (envío 2D), y ~4,5 ms constantes sin medir.
+- `D_DoomLoop` (d_main.cpp:1655-1673) incluye `I_StartFrame` → `TryRunTics` → `I_StartTic` → `D_ProcessEvents` → `D_Display` → `S_UpdateMusic`.
+- Los hooks actuales miden `TC_Scene3D` y `TC_HUD2D`.
+- `GC::CheckGC` se llama en `d_main.cpp:1263` y `d_net.cpp:2196`.
+- `NetUpdate` se llama en `d_net.cpp:2225`.
+- Los comandos 2D se envían en `c3d_framebuffer.cpp:280`.
+
+**Hipótesis A:** El tiempo extra se debe a `GC::CheckGC` o `NetUpdate`, o a esperas no medidas (`wait`), o a un número muy alto de comandos 2D.
+- El log mostrará: `it` significativamente mayor que `avg` (si `avg` no incluye todo), o alguno de `gc`, `net`, `wait` > 1 ms, o `d2` (comandos 2D) muy alto.
+
+**Hipótesis B:** El tiempo extra se debe a la carga de la GPU o al procesamiento de la escena 3D (ya medidos en pruebas anteriores), y los nuevos campos (`gc`, `net`, `wait`, `it`) son bajos.
+- El log mostrará: `it`, `gc`, `net`, `wait` bajos (< 0,5 ms), y `d2` (comandos 2D) similar a lo que se esperaba de las imágenes.
+
+**Única variable que cambia:** `src/d_main.cpp`, `src/common/rendering/c3d/c3d_diag.h` y `src/common/rendering/c3d/c3d_diag.cpp`, y `src/common/rendering/c3d/c3d_framebuffer.cpp`, bajo `#ifdef __3DS__`:
+1. `c3d_diag.h`: añadir `TC_Loop`, `TC_GC`, `TC_Net`, `TC_Wait` a `TimingCategory`.
+2. `c3d_diag.cpp`: implementar las nuevas categorías y el formato `[FPS]` con `it, gc, net, wait, d2`.
+3. `d_main.cpp`: añadir `TimingBegin/End` para `TC_Loop` en `D_DoomLoop`, y para `TC_GC` y `TC_Net` donde se llaman.
+4. `c3d_framebuffer.cpp`: incrementar contador `d2` en cada llamada a `Draw2D`.
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control en sdmc:/3ds/gzdoom/ | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Jugar MAP01-MAP02 3 min; log con `[FPS]` con `it, gc, net, wait` y `d2` (comandos 2D) |
+
+**Marcadores que se quedan:** los de la pregunta abierta. **Marcadores que se quitan:** ninguno.
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 56`.
+
+**Autocomprobación:**
+1. **Tabla de diferencias.** Una sola pasada A. Se añaden 4 categorías de timing y se cambia el significado de `d2` (comandos en vez de imágenes); no cambia comportamiento, solo diagnóstico.
+2. **¿Cada hipótesis predice algo distinto en el log?** Sí: A muestra componentes nuevos altos o `d2` alto; B muestra componentes nuevos bajos.
+3. **¿Lo que dices que se verá en pantalla puede verse?** El criterio es el log: `[FPS]` con `it, gc, net, wait, d2`.
+4. **¿Se resuelve en una sola compilación?** Sí: una pasada A.
+5. **¿Cada afirmación sobre una API tiene su fuente?** `D_DoomLoop` en d_main.cpp:1655, `GC::CheckGC` en d_main.cpp:1263, `NetUpdate` en d_net.cpp:2225, `Draw2D` en c3d_framebuffer.cpp:280.
+6. **Si todas las variantes dieran el mismo resultado, ¿qué sabría?** Si `it` es casi igual a `avg` y los nuevos campos son bajos, el tiempo se va en lo que ya medimos (`sc`, `hd`, `gu`).
+7. **¿Puede Alex preparar cada pasada sin equivocarse?** Sí: una sola pasada, sin archivos de control.
+8. **¿Lo que vas a añadir ya existe?** `TimingBegin/End`, `TimingCategory`, `TimingWindow/Worst` son variables existentes en `c3d_diag.cpp`. 4 nuevos valores del enum. `TimingTicsWindow` es variable existente. `d2` es una variable estática nueva en `c3d_framebuffer.cpp`. No se crea función ni archivo nuevo.
+9. **¿Qué se ejecuta después de tu cambio?** Cada frame: `I_StartFrame` → `TryRunTics` (medido como `TC_Loop`) → `I_StartTic` + `D_ProcessEvents` (TC_Input) → `D_Display` pre-scene (TC_PreDisplay) → `TC_Scene3D` → `TC_HDHud` → `TC_HDGPU` → `S_UpdateMusic` (TC_Sound) → `C3D_FrameEnd` (TC_FrameEnd). `[FPS]` acumula y muestra los nuevos campos con `it, gc, net, wait` y `d2`. El log sigue abierto (N3DS_Log en i_main_3ds.cpp:96).
+
+
