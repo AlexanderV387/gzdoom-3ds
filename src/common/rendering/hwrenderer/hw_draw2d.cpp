@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include "c3d_diag.h"
 #include "platform_3ds.h"
+EXTERN_CVAR(Int, c3d_wipeorient)
 #endif
 
 //===========================================================================
@@ -155,6 +156,10 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 			}
 			continue;
 		}
+
+#ifdef __3DS__
+		C3DRenderer::Diag::Timing2DDrawsWindow++;
+#endif
 
 		state.SetRenderStyle(cmd.mRenderStyle);
 		state.EnableBrightmap(!(cmd.mRenderStyle.Flags & STYLEF_ColorIsFixed));

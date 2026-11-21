@@ -19,6 +19,7 @@
 
 #ifdef __3DS__
 EXTERN_CVAR(Float, c3d_depthbias)
+EXTERN_CVAR(Int, c3d_wipeorient)
 #endif
 
 namespace C3DRenderer
@@ -416,6 +417,36 @@ void C3DRenderState::ApplyMatrices()
 		const float *m = mTextureMatrix.get();
 		t[0] = FVec4_New(m[0], m[4], 0, m[12]);
 		t[1] = FVec4_New(m[1], m[5], 0, m[13]);
+	}
+	else if (c3d_wipeorient != -1)
+	{
+		float sx = 240.f / 256.f;
+		float sy = 400.f / 512.f;
+
+		int orient = c3d_wipeorient;
+		switch (orient)
+		{
+		case 0: // No rotation
+			t[0] = FVec4_New(sx, 0, 0, 0);
+			t[1] = FVec4_New(0, sy, 0, 0);
+			break;
+		case 1: // 90 deg CW
+			t[0] = FVec4_New(0, sx, 0, 0);
+			t[1] = FVec4_New(-sy, 0, 0, 0);
+			break;
+		case 2: // 180 deg
+			t[0] = FVec4_New(-sx, 0, 0, 0);
+			t[1] = FVec4_New(0, -sy, 0, 0);
+			break;
+		case 3: // 270 deg CW
+			t[0] = FVec4_New(0, -sx, 0, 0);
+			t[1] = FVec4_New(sy, 0, 0, 0);
+			break;
+		default:
+			t[0] = FVec4_New(sx, 0, 0, 0);
+			t[1] = FVec4_New(0, sy, 0, 0);
+			break;
+		}
 	}
 	else
 	{

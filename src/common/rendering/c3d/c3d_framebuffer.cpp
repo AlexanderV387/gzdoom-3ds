@@ -30,8 +30,14 @@
 #include "engineerrors.h"
 #include "platform_3ds.h"
 #include "c_cvars.h"
+#include <c3d/renderqueue.h>
+
+#ifndef GX_BUFFER_DIM
+#define GX_BUFFER_DIM(row, col) (((row) << 4) | (col))
+#endif
 
 EXTERN_CVAR(Bool, vid_vsync)
+CVAR(Int, c3d_wipeorient, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
 void Draw2D(F2DDrawer *drawer, FRenderState &state);
 
@@ -278,6 +284,52 @@ void C3DFrameBuffer::Draw2D()
 	if (mFrameBlocked || Diag::Triangle) return;
 	Diag::Timing2DDrawsWindow++;
 	::Draw2D(twod, *TheRenderState);
+}
+
+FTexture *C3DFrameBuffer::WipeStartScreen()
+{
+	auto tex = new FWrapperTexture(256, 512, 1);
+	if (tex->GetSystemTexture()->CreateTexture(nullptr, 256, 512, 0, false, "WipeStartScreen") == 0)
+	{
+		delete tex;
+		return nullptr;
+	}
+
+	int orient = c3d_wipeorient;
+	Printf("[WIPE] Orientation: %d\n", orient);
+
+	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
+	C3D_Tex *dst_tex = hwtex->GetTex();
+	if (dst_tex && mTop->frameBuf.colorBuf)
+	{
+		C3D_SyncTextureCopy((u32*)mTop->frameBuf.colorBuf, GX_BUFFER_DIM(480, 0), (u32*)dst_tex->data, GX_BUFFER_DIM(480, 32), 7680 * 50, 8);
+		Printf("[WIPE] StartScreen copy done\n");
+	}
+
+	return tex;
+}
+
+FTexture *C3DFrameBuffer::WipeEndScreen()
+{
+	auto tex = new FWrapperTexture(256, 512, 1);
+	if (tex->GetSystemTexture()->CreateTexture(nullptr, 256, 512, 0, false, "WipeEndScreen") == 0)
+	{
+		delete tex;
+		return nullptr;
+	}
+
+	int orient = c3d_wipeorient;
+	Printf("[WIPE] Orientation: %d\n", orient);
+
+	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
+	C3D_Tex *dst_tex = hwtex->GetTex();
+	if (dst_tex && mTop->frameBuf.colorBuf)
+	{
+		C3D_SyncTextureCopy((u32*)mTop->frameBuf.colorBuf, GX_BUFFER_DIM(480, 0), (u32*)dst_tex->data, GX_BUFFER_DIM(480, 32), 7680 * 50, 8);
+		Printf("[WIPE] EndScreen copy done\n");
+	}
+
+	return tex;
 }
 
 // c3d-triangle.txt: one red triangle in clip space, with nothing of the engine's: if this shows,
