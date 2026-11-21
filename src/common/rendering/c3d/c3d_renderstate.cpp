@@ -418,7 +418,7 @@ void C3DRenderState::ApplyMatrices()
 		t[0] = FVec4_New(m[0], m[4], 0, m[12]);
 		t[1] = FVec4_New(m[1], m[5], 0, m[13]);
 	}
-	else if (c3d_wipeorient != -1)
+	else if (c3d_wipeorient != -1 && mBoundTexture->IsScreenCopy())
 	{
 		float sx = 240.f / 256.f;
 		float sy = 400.f / 512.f;

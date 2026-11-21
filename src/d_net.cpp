@@ -1998,10 +1998,24 @@ void D_QuitNetGame()
 			for (auto client : NetworkClients)
 			{
 				if (client != Net_Arbitrator)
+				{
+#ifdef __3DS__
+					C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Wait);
+#endif
 					HSendPacket(client, 2);
+#ifdef __3DS__
+					C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Wait);
+#endif
+				}
 			}
-
+			
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Wait);
+#endif
 			I_WaitVBL(1);
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Wait);
+#endif
 		}
 	}
 	else
@@ -2010,7 +2024,13 @@ void D_QuitNetGame()
 		{
 			// Only the host should know about this information.
 			HSendPacket(Net_Arbitrator, 1);
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Wait);
+#endif
 			I_WaitVBL(1);
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Wait);
+#endif
 		}
 	}
 }
@@ -2193,7 +2213,13 @@ static void CalculateNetStabilityBuffer(int diff)
 //
 void TryRunTics()
 {
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_GC);
+#endif
 	GC::CheckGC();
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_GC);
+#endif
 
 	if (ToggleFullscreen)
 	{
@@ -2209,7 +2235,15 @@ void TryRunTics()
 
 	// Get the full number of tics the client can run.
 	if (doWait)
+	{
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Wait);
+#endif
 		EnterTic = I_WaitForTic(LastEnterTic);
+#ifdef __3DS__
+		C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Wait);
+#endif
+	}
 	else
 		EnterTic = I_GetTime();
 
@@ -2222,7 +2256,13 @@ void TryRunTics()
 	// needed for singleplayer! But is instead handled entirely through local
 	// buffers. This has a limit of one seconds worth of commands that can be
 	// generated in advanced from the last time the game updated.
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Net);
+#endif
 	NetUpdate(totalTics);
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Net);
+#endif
 
 	LastEnterTic = EnterTic;
 

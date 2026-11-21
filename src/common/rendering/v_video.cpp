@@ -182,13 +182,7 @@ CVAR (Int, vid_defwidth, 640, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Int, vid_defheight, 480, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Bool, ticker, false, 0)
 
-CUSTOM_CVAR(Bool, vid_vsync, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
-{
-	if (screen != NULL)
-	{
-		screen->SetVSync (*self);
-	}
-}
+EXTERN_CVAR(Bool, vid_vsync)
 
 // [RH] Set true when vid_setmode command has been executed
 bool setmodeneeded = false;

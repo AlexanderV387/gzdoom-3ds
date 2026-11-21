@@ -38,6 +38,7 @@
 #include "info.h"
 #include "thingdef.h"
 #include "zcc_parser.h"
+#include "common/utility/i_time.h"
 #include "zcc_compile_doom.h"
 #include "r_vanillatrans.h"
 
@@ -445,6 +446,9 @@ void ParseScripts()
 
 void LoadActors()
 {
+#ifdef __3DS__
+	Printf("[load] T+%llu\n", I_msTime());
+#endif
 	cycle_t timer;
 
 	timer.Reset(); timer.Clock();

@@ -102,6 +102,7 @@ class C3DHardwareTexture : public IHardwareTexture
 	C3D_Tex mTex = {};
 	bool mCreated = false;
 	int mChannels;
+	bool mIsScreenCopy = false;
 	TArray<uint8_t> mStaging;	// AllocateBuffer / MapBuffer
 	int mStagingW = 0, mStagingH = 0;
 
@@ -112,9 +113,12 @@ public:
 	void AllocateBuffer(int w, int h, int texelsize) override;
 	uint8_t *MapBuffer() override;
 	unsigned int CreateTexture(unsigned char *buffer, int w, int h, int texunit, bool mipmap, const char *name) override;
+	bool IsScreenCopy() const override { return mIsScreenCopy; }
 
 	bool BindOrCreate(FTexture *tex, int texunit, int clampmode, int translation, int flags);
 	C3D_Tex *GetTex() { return mCreated ? &mTex : nullptr; }
+
+	void SetIsScreenCopy(bool isScreenCopy) { mIsScreenCopy = isScreenCopy; }
 
 	static size_t AllocatedBytes;
 };
@@ -212,6 +216,8 @@ public:
 	FRenderState *RenderState() override;
 	void BeginFrame() override;
 	void Draw2D() override;
+	FTexture *WipeStartScreen() override;
+	FTexture *WipeEndScreen() override;
 	void SetVSync(bool vsync) override {}
 	void WaitForCommands(bool finish) override {}
 	bool RenderTextureIsFlipped() const override { return false; }

@@ -1256,6 +1256,9 @@ STAT_OFF(rendergraph_center)
 
 void D_Display ()
 {
+#ifdef __3DS__
+	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_PreDisplay);
+#endif
 	FTexture *wipestart = nullptr;
 	int wipe_type;
 	sector_t *viewsec;
@@ -1277,7 +1280,6 @@ void D_Display ()
 	cycles.Reset();
 	cycles.Clock();
 #ifdef __3DS__
-	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_PreDisplay);
 	C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_PreDisplay);
 	C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Scene3D);
 #endif
@@ -1593,7 +1595,14 @@ void D_Display ()
 	}
 	else
 	{
-		PerformWipe(wipestart, screen->WipeEndScreen(), wipe_type, false, DrawOverlays);
+			FTexture* endtex = screen->WipeEndScreen();
+#ifdef __3DS__
+			Printf("[WIPE] type=%d, start=%s, end=%s\n", wipe_type, wipestart ? "texture" : "nullptr", endtex ? "texture" : "nullptr");
+#endif
+			PerformWipe(wipestart, endtex, wipe_type, false, DrawOverlays);
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Scene3D);
+#endif
 	}
 	cycles.Unclock();
 	FrameCycles = cycles;
@@ -1652,6 +1661,9 @@ void D_DoomLoop ()
 	{
 		try
 		{
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingBegin(C3DRenderer::Diag::TC_Loop);
+#endif
 			GStrings.SetDefaultGender(players[consoleplayer].userinfo.GetGender()); // cannot be done when the CVAR changes because we don't know if it's for the consoleplayer.
 
 			// frame syncronous IO operations
@@ -1703,6 +1715,9 @@ void D_DoomLoop ()
 				wantToRestart = false;
 				return;
 			}
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Loop);
+#endif
 		}
 		catch (const CRecoverableError &error)
 		{
@@ -1725,6 +1740,9 @@ void D_DoomLoop ()
 			error.MaybePrintMessage();
 			Printf(static_cast<PrintFlag>(PRINT_NONOTIFY | PRINT_BOLD), "%s", error.stacktrace.GetChars());
 			D_ErrorCleanup();
+#ifdef __3DS__
+			C3DRenderer::Diag::TimingEnd(C3DRenderer::Diag::TC_Loop);
+#endif
 		}
 	}
 }
@@ -2469,8 +2487,17 @@ static void D_DoomInit()
 
 	gamestate = GS_STARTUP;
 
-	if (!batchrun) Printf ("M_LoadDefaults: Load system defaults.\n");
+	if (!batchrun) { Printf ("M_LoadDefaults: Load system defaults.\n"); }
+#ifdef __3DS__
+	Printf("[load] T+%llu\n", I_msTime());
+#endif
 	M_LoadDefaults ();			// load before initing other systems
+#ifdef __3DS__
+	Printf("[load] M_LoadDefaults T+\n");
+#endif
+#ifdef __3DS__
+	Printf("[load] T+%llu\n", I_msTime());
+#endif
 }
 
 //==========================================================================
@@ -3740,21 +3767,45 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	);
 
 	bool allowduplicates = Args->CheckParm(FArg_allowduplicates);
+#ifdef __3DS__
+	Printf("[load] W_Init T+%llu\n", I_msTime());
+#endif
 	if (!fileSystem.InitMultipleFiles(allwads, &lfi, FileSystemPrintf, allowduplicates))
 	{
 		I_FatalError("FileSystem: no files found");
 	}
+#ifdef __3DS__
+	Printf("[load] InitMultipleFiles T+%llu\n", I_msTime());
+#endif
 	allwads.clear();
 	allwads.shrink_to_fit();
 	SetMapxxFlag();
+#ifdef __3DS__
+	Printf("[load] SetMapxxFlag T+%llu\n", I_msTime());
+#endif
 
 	D_GrabCVarDefaults(); //parse DEFCVARS
+#ifdef __3DS__
+	Printf("[load] D_GrabCVarDefaults T+%llu\n", I_msTime());
+#endif
 	InitPalette();
+#ifdef __3DS__
+	Printf("[load] InitPalette T+%llu\n", I_msTime());
+#endif
 
-	if (!batchrun) Printf("S_Init: Setting up sound.\n");
+	if (!batchrun) { Printf("S_Init: Setting up sound.\n"); }
+#ifdef __3DS__
+	Printf("[load] S_Init T+\n");
+#endif
 	S_Init();
+#ifdef __3DS__
+	Printf("[load] S_InitDone T+\n");
+#endif
 
 	int max_progress = TexMan.GuesstimateNumTextures();
+#ifdef __3DS__
+	Printf("[load] GuesstimateNumTextures T+%llu\n", I_msTime());
+#endif
 	int per_shader_progress = 0;//screen->GetShaderCount()? (max_progress / 10 / screen->GetShaderCount()) : 0;
 
 	bool norun = Args->CheckParm(FArg_norun);
@@ -3771,20 +3822,32 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	}
 
 	GameConfig->DoKeySetup(gameinfo.ConfigName.GetChars());
+#ifdef __3DS__
+	Printf("[load] DoKeySetup T+%llu\n", I_msTime());
+#endif
 
 	// Now that wads are loaded, define mod-specific cvars.
 	ParseCVarInfo();
+#ifdef __3DS__
+	Printf("[load] ParseCVarInfo T+%llu\n", I_msTime());
+#endif
 
 	// Actually exec command line commands and exec files.
 	if (exec != NULL)
 	{
 		exec->ExecCommands();
+#ifdef __3DS__
+		Printf("[load] ExecCommands T+%llu\n", I_msTime());
+#endif
 		delete exec;
 		exec = NULL;
 	}
 
 	// [RH] Initialize localizable strings.
 	GStrings.LoadStrings(fileSystem, language);
+#ifdef __3DS__
+	Printf("[load] GStrings.LoadStrings T+%llu\n", I_msTime());
+#endif
 
 	V_InitFontColors ();
 
@@ -3795,6 +3858,9 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	if (!restart)
 	{
+#ifdef __3DS__
+	Printf("[load] I_Init T+\n");
+#endif
 		if (!batchrun) Printf ("I_Init: Setting up machine state.\n");
 		CheckCPUID(&CPU);
 		CalculateCPUSpeed();
@@ -4253,6 +4319,9 @@ static int D_DoomMain_Internal (void)
 	const char *batchout = Args->CheckValue(FArg_errorlog);
 
 	D_DoomInit();
+#ifdef __3DS__
+	Printf("[load] D_DoomInit T+%llu\n", I_msTime());
+#endif
 
 	// [RH] Make sure zdoom.pk3 is always loaded,
 	// as it contains magic stuff we need.
@@ -4355,7 +4424,14 @@ static int D_DoomMain_Internal (void)
 
 		std::vector<FileSys::ResourceName> allwads;
 
+		// [WIPE] mark for iwad identification
+#ifdef __3DS__
+		Printf("[load] FindIWAD start T+%llu\n", I_msTime());
+#endif
 		const FIWADInfo *iwad_info = iwad_man->FindIWAD(allwads, iwad.GetChars(), basewad.GetChars(), optionalwad.GetChars());
+#ifdef __3DS__
+		Printf("[load] FindIWAD end T+%llu\n", I_msTime());
+#endif
 		if (!iwad_info) return 0;	// user exited the selection popup via cancel button.
 
 		GetCmdLineFiles(pwads, false); // [RL0] Update with files passed on the launcher extra args

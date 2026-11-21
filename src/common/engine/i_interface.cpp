@@ -57,8 +57,10 @@ FStartupInfo GameStartupInfo;
 
 #ifdef __3DS__
 CVAR(Bool, vid_fps, true, 0)
+CVAR(Bool, vid_vsync, false, 0)
 #else
 CVAR(Bool, vid_fps, false, 0)
+CVAR(Bool, vid_vsync, false, 0)
 #endif
 CVAR(Bool, queryiwad, QUERYIWADDEFAULT, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, saveargs, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

@@ -549,6 +549,9 @@ void PerformWipe(FTexture* startimg, FTexture* endimg, int wipe_type, bool stops
 			wipestart = nowtime;
 			twod->Begin(screen->GetWidth(), screen->GetHeight());
 			done = wiper->Run(1);
+#ifdef __3DS__
+			printf("[WIPE] step drawn\n");
+#endif
 			if (overlaydrawer) overlaydrawer();
 			twod->End();
 			screen->Update();

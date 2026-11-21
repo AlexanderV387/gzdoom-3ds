@@ -39,6 +39,7 @@
 #include "m_argv.h"
 #include "m_misc.h"
 #include "sc_man.h"
+#include "common/utility/i_time.h"
 #include "version.h"
 
 #ifdef __3DS__
@@ -652,6 +653,9 @@ FString FIWadManager::IWADPathFileSearch(const FString &file)
 
 int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, const char *iwad, const char *zdoom_wad, const char *optional_wad)
 {
+#ifdef __3DS__
+	Printf("[load] T+%llu\n", I_msTime());
+#endif
 	const char *iwadparm = Args->CheckValue (FArg_iwad);
 	FString custwad;
 
@@ -732,6 +736,9 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 	{
 		if (!FileExists(mFoundWads[i].mFullPath) || !FileReadable(mFoundWads[i].mFullPath.GetChars())) mFoundWads.Delete(i--);
 	}
+#ifdef __3DS__
+	Printf("[load] T+%llu\n", I_msTime());
+#endif
 
 	// Now check if what got collected actually is an IWAD.
 	ValidateIWADs();

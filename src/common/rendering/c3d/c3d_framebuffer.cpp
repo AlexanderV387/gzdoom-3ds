@@ -288,17 +288,19 @@ void C3DFrameBuffer::Draw2D()
 
 FTexture *C3DFrameBuffer::WipeStartScreen()
 {
-	auto tex = new FWrapperTexture(256, 512, 1);
+	auto tex = new FWrapperTexture(400, 240, 1);
 	if (tex->GetSystemTexture()->CreateTexture(nullptr, 256, 512, 0, false, "WipeStartScreen") == 0)
 	{
 		delete tex;
 		return nullptr;
 	}
 
+	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
+	hwtex->SetIsScreenCopy(true);
+
 	int orient = c3d_wipeorient;
 	Printf("[WIPE] Orientation: %d\n", orient);
 
-	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
 	C3D_Tex *dst_tex = hwtex->GetTex();
 	if (dst_tex && mTop->frameBuf.colorBuf)
 	{
@@ -311,17 +313,19 @@ FTexture *C3DFrameBuffer::WipeStartScreen()
 
 FTexture *C3DFrameBuffer::WipeEndScreen()
 {
-	auto tex = new FWrapperTexture(256, 512, 1);
+	auto tex = new FWrapperTexture(400, 240, 1);
 	if (tex->GetSystemTexture()->CreateTexture(nullptr, 256, 512, 0, false, "WipeEndScreen") == 0)
 	{
 		delete tex;
 		return nullptr;
 	}
 
+	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
+	hwtex->SetIsScreenCopy(true);
+
 	int orient = c3d_wipeorient;
 	Printf("[WIPE] Orientation: %d\n", orient);
 
-	auto hwtex = static_cast<C3DHardwareTexture *>(tex->GetSystemTexture());
 	C3D_Tex *dst_tex = hwtex->GetTex();
 	if (dst_tex && mTop->frameBuf.colorBuf)
 	{
