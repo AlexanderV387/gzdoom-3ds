@@ -365,6 +365,9 @@ FIWadManager::FIWadManager(const char *firstfn, const char *optfn)
 			ParseIWadInfo("IWADINFO", data.string(), (int)data.size());
 		}
 
+#ifdef __3DS__
+		Printf("[load] FIWadManager (T+%llu ms)\n", I_msTime());
+#endif
 	}
 }
 

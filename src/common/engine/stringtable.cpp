@@ -31,6 +31,7 @@
 #include "m_crc32.h"
 #include "name.h"
 #include "printf.h"
+#include "i_time.h"
 #include "sc_man.h"
 #include "stringtable.h"
 #include "zstring.h"
@@ -381,6 +382,9 @@ void FStringTable::LoadStrings (FileSys::FileSystem& fileSystem, const char *lan
 	}
 	UpdateLanguage(language);
 	allMacros.Clear();
+#ifdef __3DS__
+	Printf("[load] GStrings (T+%llu ms)\n", I_msTime());
+#endif
 }
 
 //==========================================================================

@@ -29,9 +29,34 @@
 #include <cstdio>
 #include <ctime>
 #include <sys/stat.h>
+#include <algorithm>
 
 #ifdef __3DS__
 #include "platform_3ds.h"
+#include <3ds.h>
+#include "i_time.h"
+
+struct ColorTableWriteData {
+	char cachePath[128];
+	ColorTable32k rgb32k;
+	ColorTable256k rgb256k;
+};
+
+void ColorTableWriteThread(void* arg)
+{
+	ColorTableWriteData* data = (ColorTableWriteData*)arg;
+	FILE* f = fopen(data->cachePath, "wb");
+	if (f) {
+		if (fwrite(&data->rgb32k, sizeof(ColorTable32k), 1, f) == 1 &&
+			fwrite(&data->rgb256k, sizeof(ColorTable256k), 1, f) == 1) {
+			fclose(f);
+		} else {
+			fclose(f);
+			remove(data->cachePath);
+		}
+	}
+	delete data;
+}
 #endif
 
 
@@ -41,8 +66,6 @@ uint32_t Col2RGB8_Inverse[65][256];
 uint32_t Col2RGB8_2[63][256]; // this array's second dimension is called up by pointer as Col2RGB8_LessPrecision[] elsewhere.
 ColorTable32k RGB32k;
 ColorTable256k RGB256k;
-
-
 
 
 
@@ -61,7 +84,7 @@ void BuildTransTable (const PalEntry *palette)
 
 #ifdef __3DS__
 	{
-		clock_t start = clock();
+		uint64_t start = I_msTime();
 		uint32_t paletteCRC = CalcCRC32((const uint8_t*)palette, 256 * sizeof(PalEntry));
 		char cachePath[128];
 		snprintf(cachePath, sizeof(cachePath), "sdmc:/3ds/gzdoom/cache/colortables-%08x.bin", paletteCRC);
@@ -83,8 +106,8 @@ void BuildTransTable (const PalEntry *palette)
 		}
 
 		if (loaded) {
-			double duration = (double)(clock() - start) / CLOCKS_PER_SEC;
-			Printf("[load] colortables: cache leída/creada (%.3fs)\n", duration);
+			uint64_t duration = I_msTime() - start;
+			Printf("[load] colortables: cache leída (%.0fms)\n", (double)duration);
 		} else {
 #endif
 			// create the RGB555 lookup table
@@ -101,14 +124,21 @@ void BuildTransTable (const PalEntry *palette)
 #ifdef __3DS__
 			mkdir("sdmc:/3ds/gzdoom", 0777);
 			mkdir("sdmc:/3ds/gzdoom/cache", 0777);
-			f = fopen(cachePath, "wb");
-			if (f) {
-				fwrite(&RGB32k, sizeof(RGB32k), 1, f);
-				fwrite(&RGB256k, sizeof(RGB256k), 1, f);
-				fclose(f);
-				double duration = (double)(clock() - start) / CLOCKS_PER_SEC;
-				Printf("[load] colortables: cache leída/creada (%.3fs)\n", duration);
-			}
+
+			ColorTableWriteData* data = new ColorTableWriteData;
+			snprintf(data->cachePath, sizeof(data->cachePath), "sdmc:/3ds/gzdoom/cache/colortables-%08x.bin", paletteCRC);
+			data->rgb32k = RGB32k;
+			data->rgb256k = RGB256k;
+
+			int priority = 0x30; // Default
+#ifdef CUR_THREAD_HANDLE
+			svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+#endif
+			priority = std::clamp(priority + 4, 0x18, 0x3F);
+
+			threadCreate(ColorTableWriteThread, data, 65536, priority, 0, false);
+
+			Printf("[load] colortables: calculadas, se guardan en segundo plano (%.0fms)\n", (double)(I_msTime() - start));
 		}
 	}
 #endif
