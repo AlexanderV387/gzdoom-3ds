@@ -36,6 +36,7 @@
 #include "stringtable.h"
 #include "texturemanager.h"
 #include "textures.h"
+#include "common/utility/i_time.h"
 #include "vectors.h"
 #include "m_round.h"
 
@@ -1205,7 +1206,7 @@ void FTextureManager::AddTextures(void (*progressFunc_)(), void (*checkForHacks)
 	{
 		uint64_t start = I_msTime();
 		AddTexturesForWad(i, build);
-		Printf("[load] Wad %d (%s) %llu ms\n", i, fileSystem.GetResourceFileName(i).GetChars(), I_msTime() - start);
+		Printf("[load] Wad %d (%s) %llu ms\n", i, fileSystem.GetResourceFileName(i), I_msTime() - start);
 	}
 
 	{
