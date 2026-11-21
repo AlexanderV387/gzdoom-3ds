@@ -32,6 +32,8 @@
 #include "g_levellocals.h"
 #include "m_png.h"
 #include "v_colortables.h"
+#include "printf.h"
+#include "common/utility/i_time.h"
 
 using namespace FileSys;
 
@@ -45,9 +47,12 @@ void InitPalette ()
 	uint8_t pal[768];
 
 	ReadPalette(fileSystem.GetNumForName("PLAYPAL"), pal);
+	Printf("[load] ReadPalette T+%llu\n", I_msTime());
 
 	GPalette.Init(NUM_TRANSLATION_TABLES, nullptr);
+	Printf("[load] GPalette.Init T+%llu\n", I_msTime());
 	GPalette.SetPalette (pal, -1);
+	Printf("[load] GPalette.SetPalette T+%llu\n", I_msTime());
 
 	int lump = fileSystem.CheckNumForName("COLORMAP");
 	if (lump == -1) lump = fileSystem.CheckNumForName("COLORMAP", ns_colormaps);
@@ -56,12 +61,16 @@ void InitPalette ()
 		FileData cmap = fileSystem.ReadFile(lump);
 		auto cmapdata = cmap.bytes();
 		GPalette.GenerateGlobalBrightmapFromColormap(cmapdata, 32);
+		Printf("[load] GenerateGlobalBrightmapFromColormap T+%llu\n", I_msTime());
 		MakeGoodRemap((uint32_t*)GPalette.BaseColors, GPalette.Remap, cmapdata + 7936);	// last entry in colormap
+		Printf("[load] MakeGoodRemap T+%llu\n", I_msTime());
 	}
 	else
 		MakeGoodRemap ((uint32_t*)GPalette.BaseColors, GPalette.Remap);
+		Printf("[load] MakeGoodRemap T+%llu\n", I_msTime());
 
 	ColorMatcher.SetPalette ((uint32_t *)GPalette.BaseColors);
+	Printf("[load] ColorMatcher.SetPalette T+%llu\n", I_msTime());
 
 	if (GPalette.Remap[0] == 0)
 	{ // No duplicates, so settle for something close to color 0
@@ -73,6 +82,8 @@ void InitPalette ()
 	// Colormaps have to be initialized before actors are loaded,
 	// otherwise Powerup.Colormap will not work.
 	R_InitColormaps ();
+	Printf("[load] R_InitColormaps T+%llu\n", I_msTime());
 	BuildTransTable (GPalette.BaseColors);
+	Printf("[load] BuildTransTable T+%llu\n", I_msTime());
 
 }

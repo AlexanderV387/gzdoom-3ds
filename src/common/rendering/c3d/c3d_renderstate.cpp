@@ -420,32 +420,77 @@ void C3DRenderState::ApplyMatrices()
 	}
 	else if (c3d_wipeorient != -1 && mBoundTexture != nullptr && mBoundTexture->IsScreenCopy())
 	{
-		float sx = 240.f / 256.f;
-		float sy = 400.f / 512.f;
-
-		int orient = c3d_wipeorient;
-		switch (orient)
+#ifdef __3DS__
+		if (c3d_wipeorient == 8)
 		{
-		case 0: // No rotation
-			t[0] = FVec4_New(sx, 0, 0, 0);
-			t[1] = FVec4_New(0, sy, 0, 0);
-			break;
-		case 1: // 90 deg CW
-			t[0] = FVec4_New(0, sx, 0, 0);
-			t[1] = FVec4_New(-sy, 0, 0, 0);
-			break;
-		case 2: // 180 deg
-			t[0] = FVec4_New(-sx, 0, 0, 0);
-			t[1] = FVec4_New(0, -sy, 0, 0);
-			break;
-		case 3: // 270 deg CW
-			t[0] = FVec4_New(0, -sx, 0, 0);
-			t[1] = FVec4_New(sy, 0, 0, 0);
-			break;
-		default:
-			t[0] = FVec4_New(sx, 0, 0, 0);
-			t[1] = FVec4_New(0, sy, 0, 0);
-			break;
+			static clock_t diagStartTime = 0;
+			clock_t now = clock();
+			if (diagStartTime == 0)
+			{
+				diagStartTime = now;
+				int lw = mBoundTexture->GetWidth();
+				int lh = mBoundTexture->GetHeight();
+				Printf("[WIPE] diag %dx%d, UV adjustment: no\n", lw, lh);
+			}
+
+			double elapsed = (double)(now - diagStartTime) / CLOCKS_PER_SEC;
+			if (elapsed < 3.0)
+			{
+				float sx = 1.0f, sy = 1.0f; // Identity for identity matrix
+				t[0] = FVec4_New(sx, 0, 0, 0);
+				t[1] = FVec4_New(0, sy, 0, 0);
+			}
+			else
+			{
+				diagStartTime = 0;
+			}
+		}
+		else
+#endif
+		{
+			float sx = 240.f / 256.f;
+			float sy = 400.f / 512.f;
+
+			int orient = c3d_wipeorient;
+			switch (orient)
+			{
+			case 0: // No rotation
+				t[0] = FVec4_New(sx, 0, 0, 0);
+				t[1] = FVec4_New(0, sy, 0, 0);
+				break;
+			case 1: // 90 deg CW
+				t[0] = FVec4_New(0, sx, 0, 0);
+				t[1] = FVec4_New(-sy, 0, 0, sy);
+				break;
+			case 2: // 180 deg
+				t[0] = FVec4_New(-sx, 0, 0, sx);
+				t[1] = FVec4_New(0, -sy, 0, sy);
+				break;
+			case 3: // 270 deg CW
+				t[0] = FVec4_New(0, -sx, 0, sx);
+				t[1] = FVec4_New(sy, 0, 0, 0);
+				break;
+			case 4:
+				t[0] = FVec4_New(0, sx, 0, 0);
+				t[1] = FVec4_New(sy, 0, 0, 0);
+				break;
+			case 5:
+				t[0] = FVec4_New(0, -sx, 0, sx);
+				t[1] = FVec4_New(-sy, 0, 0, sy);
+				break;
+			case 6:
+				t[0] = FVec4_New(-sx, 0, 0, sx);
+				t[1] = FVec4_New(0, sy, 0, 0);
+				break;
+			case 7:
+				t[0] = FVec4_New(sx, 0, 0, 0);
+				t[1] = FVec4_New(0, -sy, 0, sy);
+				break;
+			default:
+				t[0] = FVec4_New(sx, 0, 0, 0);
+				t[1] = FVec4_New(0, sy, 0, 0);
+				break;
+			}
 		}
 	}
 	else

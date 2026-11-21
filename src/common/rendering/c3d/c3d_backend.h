@@ -115,6 +115,9 @@ public:
 	unsigned int CreateTexture(unsigned char *buffer, int w, int h, int texunit, bool mipmap, const char *name) override;
 	bool IsScreenCopy() const override { return mIsScreenCopy; }
 
+	int GetWidth() const { return mStagingW; }
+	int GetHeight() const { return mStagingH; }
+
 	bool BindOrCreate(FTexture *tex, int texunit, int clampmode, int translation, int flags);
 	C3D_Tex *GetTex() { return mCreated ? &mTex : nullptr; }
 

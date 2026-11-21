@@ -3836,18 +3836,14 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	if (exec != NULL)
 	{
 		exec->ExecCommands();
-#ifdef __3DS__
 		Printf("[load] ExecCommands T+%llu\n", I_msTime());
-#endif
 		delete exec;
 		exec = NULL;
 	}
 
 	// [RH] Initialize localizable strings.
 	GStrings.LoadStrings(fileSystem, language);
-#ifdef __3DS__
 	Printf("[load] GStrings.LoadStrings T+%llu\n", I_msTime());
-#endif
 
 	V_InitFontColors ();
 
@@ -4319,9 +4315,7 @@ static int D_DoomMain_Internal (void)
 	const char *batchout = Args->CheckValue(FArg_errorlog);
 
 	D_DoomInit();
-#ifdef __3DS__
 	Printf("[load] D_DoomInit T+%llu\n", I_msTime());
-#endif
 
 	// [RH] Make sure zdoom.pk3 is always loaded,
 	// as it contains magic stuff we need.
@@ -4331,9 +4325,12 @@ static int D_DoomMain_Internal (void)
 		I_FatalError("Cannot find " BASEWAD);
 	}
 	LoadHexFont(wad);	// load hex font early so we have it during startup.
+	Printf("[load] LoadHexFont T+%llu\n", I_msTime());
 	InitWidgetResources(wad);
+	Printf("[load] InitWidgetResources T+%llu\n", I_msTime());
 
 	C_InitConsole(80*8, 25*8, false);
+	Printf("[load] C_InitConsole T+%llu\n", I_msTime());
 
 	Printf(
 		"%s version %s\nBuild: %s,%s dated %s\nOS: %s\n",
@@ -4361,12 +4358,14 @@ static int D_DoomMain_Internal (void)
 	if (logfile.IsNotEmpty())
 	{
 		execLogfile(logfile.GetChars());
+		Printf("[load] execLogfile T+%llu\n", I_msTime());
 	}
 	else if (batchout != NULL && *batchout != 0)
 	{
 		batchrun = true;
 		nosound = true;
 		execLogfile(batchout, true);
+		Printf("[load] execLogfile T+%llu\n", I_msTime());
 		Printf("Command line: ");
 		for (int i = 0; i < Args->NumArgs(); i++)
 		{
@@ -4377,15 +4376,19 @@ static int D_DoomMain_Internal (void)
 
 	extern void D_ConfirmSendStats();
 	D_ConfirmSendStats();
+	Printf("[load] D_ConfirmSendStats T+%llu\n", I_msTime());
 
 	FString basewad = wad;
 
 	FString optionalwad = BaseFileSearch(OPTIONALWAD, NULL, true, GameConfig);
+	Printf("[load] BaseFileSearch (optional) T+%llu\n", I_msTime());
 
 	iwad_man = new FIWadManager(basewad.GetChars(), optionalwad.GetChars());
+	Printf("[load] new FIWadManager T+%llu\n", I_msTime());
 
 	// Now that we have the IWADINFO, initialize the autoload ini sections.
 	GameConfig->DoAutoloadSetup(iwad_man);
+	Printf("[load] GameConfig->DoAutoloadSetup T+%llu\n", I_msTime());
 
 	bool should_debug = vm_debug;
 	const char * debug_port_arg = Args->CheckValue(FArg_debug);
@@ -4398,7 +4401,9 @@ static int D_DoomMain_Internal (void)
 	do
 	{
 		PClass::StaticInit();
+		Printf("[load] PClass::StaticInit T+%llu\n", I_msTime());
 		PType::StaticInit();
+		Printf("[load] PType::StaticInit T+%llu\n", I_msTime());
 
 		if (restart)
 		{
@@ -4425,13 +4430,9 @@ static int D_DoomMain_Internal (void)
 		std::vector<FileSys::ResourceName> allwads;
 
 		// [WIPE] mark for iwad identification
-#ifdef __3DS__
 		Printf("[load] FindIWAD start T+%llu\n", I_msTime());
-#endif
 		const FIWADInfo *iwad_info = iwad_man->FindIWAD(allwads, iwad.GetChars(), basewad.GetChars(), optionalwad.GetChars());
-#ifdef __3DS__
 		Printf("[load] FindIWAD end T+%llu\n", I_msTime());
-#endif
 		if (!iwad_info) return 0;	// user exited the selection popup via cancel button.
 
 		GetCmdLineFiles(pwads, false); // [RL0] Update with files passed on the launcher extra args
