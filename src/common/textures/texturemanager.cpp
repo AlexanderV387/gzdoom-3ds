@@ -1203,9 +1203,16 @@ void FTextureManager::AddTextures(void (*progressFunc_)(), void (*checkForHacks)
 
 	for(int i = 0; i< wadcnt; i++)
 	{
+		uint64_t start = I_msTime();
 		AddTexturesForWad(i, build);
+		Printf("[load] Wad %d (%s) %llu ms\n", i, fileSystem.GetResourceFileName(i).GetChars(), I_msTime() - start);
 	}
-	build.ResolveAllPatches();
+
+	{
+		uint64_t start = I_msTime();
+		build.ResolveAllPatches();
+		Printf("[load] ResolveAllPatches %llu ms\n", I_msTime() - start);
+	}
 
 	// Add one marker so that the last WAD is easier to handle and treat
 	// custom textures as a completely separate block.
@@ -1216,21 +1223,40 @@ void FTextureManager::AddTextures(void (*progressFunc_)(), void (*checkForHacks)
 	DefaultTexture = CheckForTexture ("-NOFLAT-", ETextureType::Override, 0);
 	WhiteTexture = CheckForTexture ("-WHITE-", ETextureType::Override, 0);
 
-	InitPalettedVersions();
-	AdjustSpriteOffsets();
+	{
+		uint64_t start = I_msTime();
+		InitPalettedVersions();
+		Printf("[load] InitPalettedVersions %llu ms\n", I_msTime() - start);
+	}
+
+	{
+		uint64_t start = I_msTime();
+		AdjustSpriteOffsets();
+		Printf("[load] AdjustSpriteOffsets %llu ms\n", I_msTime() - start);
+	}
+
 	// Add auto materials to each texture after everything has been set up.
 	// Textures array can be reallocated in process, so ranged for loop is not suitable.
 	// There is no need to process discovered material textures here,
 	// CheckForTexture() did this already.
-	for (unsigned int i = 0, count = Textures.Size(); i < count; ++i)
 	{
-		Textures[i].Texture->AddAutoMaterials();
+		uint64_t start = I_msTime();
+		for (unsigned int i = 0, count = Textures.Size(); i < count; ++i)
+		{
+			Textures[i].Texture->AddAutoMaterials();
+		}
+		Printf("[load] AddAutoMaterials loop %llu ms\n", I_msTime() - start);
 	}
 
 	glPart2 = TexMan.CheckForTexture("glstuff/glpart2.png", ETextureType::MiscPatch);
 	glPart = TexMan.CheckForTexture("glstuff/glpart.png", ETextureType::MiscPatch);
 	mirrorTexture = TexMan.CheckForTexture("glstuff/mirror.png", ETextureType::MiscPatch);
-	AddLocalizedVariants();
+
+	{
+		uint64_t start = I_msTime();
+		AddLocalizedVariants();
+		Printf("[load] AddLocalizedVariants %llu ms\n", I_msTime() - start);
+	}
 
 	// Make sure all ID's are correct by resetting them here to the proper index.
 	for (unsigned int i = 0, count = Textures.Size(); i < count; ++i)

@@ -136,7 +136,7 @@ void BuildTransTable (const PalEntry *palette)
 #endif
 			priority = std::clamp(priority + 4, 0x18, 0x3F);
 
-			threadCreate(ColorTableWriteThread, data, 65536, priority, 0, false);
+			threadCreate(ColorTableWriteThread, data, 65536, priority, 0, true);
 
 			Printf("[load] colortables: calculadas, se guardan en segundo plano (%.0fms)\n", (double)(I_msTime() - start));
 		}
