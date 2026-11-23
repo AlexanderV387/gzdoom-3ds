@@ -40,6 +40,8 @@
 #include "vectors.h"
 #include "m_round.h"
 
+extern void PrintImageStats();
+
 using namespace FileSys;
 FTextureManager TexMan;
 
@@ -932,23 +934,37 @@ void FTextureManager::AddTexturesForWad(int wadnum, FMultipatchTextureBuilder &b
 
 	FirstTextureForFile.Push(firsttexture);
 
+	uint64_t t_spr = 0, t_pat = 0, t_tx = 0, t_flat = 0, t_new = 0, t_misc = 0, t_defs = 0, t_hires = 0, t_sort = 0;
+	uint64_t start = 0;
+
 	// First step: Load sprites
+	start = I_msTime();
 	AddGroup(wadnum, ns_sprites, ETextureType::Sprite);
+	t_spr = I_msTime() - start;
 
 	// When loading a Zip, all graphics in the patches/ directory should be
 	// added as well.
+	start = I_msTime();
 	AddGroup(wadnum, ns_patches, ETextureType::WallPatch);
+	t_pat = I_msTime() - start;
 
 	// Second step: TEXTUREx lumps
+	start = I_msTime();
 	LoadTextureX(wadnum, build);
+	t_tx = I_msTime() - start;
 
 	// Third step: Flats
+	start = I_msTime();
 	AddGroup(wadnum, ns_flats, ETextureType::Flat);
+	t_flat = I_msTime() - start;
 
 	// Fourth step: Textures (TX_)
+	start = I_msTime();
 	AddGroup(wadnum, ns_newtextures, ETextureType::Override);
+	t_new = I_msTime() - start;
 
 	// Sixth step: Try to find any lump in the WAD that may be a texture and load as a TEX_MiscPatch
+	start = I_msTime();
 	int firsttx = fileSystem.GetFirstEntry(wadnum);
 	int lasttx = fileSystem.GetLastEntry(wadnum);
 
@@ -1025,15 +1041,27 @@ void FTextureManager::AddTexturesForWad(int wadnum, FMultipatchTextureBuilder &b
 			AddGameTexture (out);
 		}
 	}
+	t_misc = I_msTime() - start;
 
 	// Check for text based texture definitions
+	start = I_msTime();
 	LoadTextureDefs(wadnum, "TEXTURES", build);
 	LoadTextureDefs(wadnum, "HIRESTEX", build);
+	t_defs = I_msTime() - start;
 
 	// Seventh step: Check for hires replacements.
+	start = I_msTime();
 	AddHiresTextures(wadnum);
+	t_hires = I_msTime() - start;
 
+	start = I_msTime();
 	SortTexturesByType(firsttexture, Textures.Size());
+	t_sort = I_msTime() - start;
+
+	Printf("[load] wad %d: spr=%llu pat=%llu tx=%llu flat=%llu new=%llu misc=%llu defs=%llu hires=%llu sort=%llu\n", 
+           wadnum, t_spr, t_pat, t_tx, t_flat, t_new, t_misc, t_defs, t_hires, t_sort);
+
+	PrintImageStats();
 }
 
 //==========================================================================

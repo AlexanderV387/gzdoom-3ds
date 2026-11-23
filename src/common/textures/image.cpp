@@ -51,9 +51,27 @@ struct PrecacheDataRgba
 	int Frame;
 };
 
-// TMap doesn't handle this kind of data well.  std::map neither. The linear search is still faster, even for a few 100 entries because it doesn't have to access the heap as often..
-TArray<PrecacheDataPaletted> precacheDataPaletted;
-TArray<PrecacheDataRgba> precacheDataRgba;
+static uint64_t g_ImageStats_OpenCalls = 0;
+static uint64_t g_ImageStats_OpenTimeMs = 0;
+static uint64_t g_ImageStats_TryCreateTimeMs = 0;
+static uint64_t g_ImageStats_Bytes = 0;
+static uint32_t g_ImageStats_TryCreateSuccess[15] = {0};
+
+void PrintImageStats()
+{
+	Printf("ImageStats: calls=%llu, open_ms=%llu, trycreate_ms=%llu, bytes=%llu\n", 
+	       g_ImageStats_OpenCalls, g_ImageStats_OpenTimeMs, g_ImageStats_TryCreateTimeMs, g_ImageStats_Bytes);
+	for (int i = 0; i < 15; i++) {
+		if (g_ImageStats_TryCreateSuccess[i] > 0) {
+			Printf("  TryCreate[%d] success=%u\n", i, g_ImageStats_TryCreateSuccess[i]);
+		}
+	}
+	g_ImageStats_OpenCalls = 0;
+	g_ImageStats_OpenTimeMs = 0;
+	g_ImageStats_TryCreateTimeMs = 0;
+	g_ImageStats_Bytes = 0;
+	for (int i = 0; i < 15; i++) g_ImageStats_TryCreateSuccess[i] = 0;
+}
 
 //===========================================================================
 //
@@ -363,10 +381,17 @@ FImageSource * FImageSource::GetImage(int lumpnum, bool isflat)
 	// An image for this lump already exists. We do not need another one.
 	if (ImageForLump[lumpnum] != nullptr) return ImageForLump[lumpnum];
 
+	g_ImageStats_OpenCalls++;
+	uint64_t openStart = I_msTime();
 	auto data = fileSystem.OpenFileReader(lumpnum);
+	g_ImageStats_OpenTimeMs += (I_msTime() - openStart);
+
 	if (!data.isOpen())
 		return nullptr;
 
+	g_ImageStats_Bytes += data.GetLength();
+
+	uint64_t tryStart = I_msTime();
 	for (size_t i = 0; i < countof(CreateInfo); i++)
 	{
 		if (!CreateInfo[i].checkflat || isflat)
@@ -374,10 +399,14 @@ FImageSource * FImageSource::GetImage(int lumpnum, bool isflat)
 			auto image = CreateInfo[i].TryCreate(data, lumpnum);
 			if (image != nullptr)
 			{
+				g_ImageStats_TryCreateSuccess[i]++;
 				ImageForLump[lumpnum] = image;
+				g_ImageStats_TryCreateTimeMs += (I_msTime() - tryStart);
 				return image;
 			}
 		}
 	}
+	g_ImageStats_TryCreateTimeMs += (I_msTime() - tryStart);
+
 	return nullptr;
 }
