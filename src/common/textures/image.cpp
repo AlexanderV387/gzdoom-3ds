@@ -390,7 +390,13 @@ FImageSource * FImageSource::GetImage(int lumpnum, bool isflat)
 
 	g_ImageStats_OpenCalls++;
 	uint64_t openStart = I_msTime();
+#ifdef __3DS__
+	FileData fileData = fileSystem.ReadFile(lumpnum);
+	FileReader data;
+	data.OpenMemoryArray(fileData);
+#else
 	auto data = fileSystem.OpenFileReader(lumpnum);
+#endif
 	g_ImageStats_OpenTimeMs += (I_msTime() - openStart);
 
 	if (!data.isOpen())
