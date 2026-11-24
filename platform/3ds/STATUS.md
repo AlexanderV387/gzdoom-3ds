@@ -35,3 +35,22 @@
 | A | ninguno | Log "colortables..." y tiempos [load] en consola |
 
 **Cómo se compila:** `platform/3ds/docker-build-test.sh 66`
+
+## Prueba 71
+**Lo que se pidió:**
+- En `FPatchTexture::DetectBadPatches` (`src/common/textures/formats/patchtexture.cpp`), leer el parche entero con `fileSystem.ReadFile(SourceLump)` solo si mide 256 de alto, para evitar leer cada parche de `doom2.wad` dos veces de la SD.
+
+**Hipótesis:** Al añadir `if (Height != 256) return;`, evitamos lecturas innecesarias de parches que no pueden ser "malos", reduciendo el uso de la SD.
+
+**Autocomprobación:**
+1. ¿Compila correctamente?
+2. ¿Se nota mejora en los tiempos de carga de texturas o menos actividad de SD (si se puede medir)?
+
+**Pregunta:** ¿Se ha reducido la lectura de parches de la SD al cargar `doom2.wad`?
+
+**Pasadas en la consola:**
+| Pasada | Archivos de control | Qué mirar en pantalla |
+|---|---|---|
+| A | ninguno | Logs de carga y tiempos |
+
+**Cómo se compila:** `platform/3ds/docker-build-test.sh 71`

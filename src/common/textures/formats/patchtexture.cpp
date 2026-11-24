@@ -279,6 +279,7 @@ void FPatchTexture::DetectBadPatches ()
 {
 	// The patch must look like it is large enough for the rules to apply to avoid using this on truly empty patches.
 	if (fileSystem.FileLength(SourceLump) < Width * Height / 2) return;
+	if (Height != 256) return;	// only 256-tall patches can be bad; avoid reading the lump
 
 	// Check if this patch is likely to be a problem.
 	// It must be 256 pixels tall, and all its columns must have exactly
