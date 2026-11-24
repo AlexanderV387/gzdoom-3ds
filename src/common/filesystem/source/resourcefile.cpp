@@ -46,6 +46,8 @@ void SetMainThread()
 	}
 }
 
+bool IsFileSystemMainThread() { return mainThread; }
+
 std::string ExtractBaseName(const char* path, bool include_extension)
 {
 	const char* src, * dot;

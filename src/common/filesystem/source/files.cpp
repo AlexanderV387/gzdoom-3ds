@@ -27,11 +27,23 @@
 #include <algorithm>
 #include <assert.h>
 #include <string.h>
+#include <cstdio>
 #include "files_internal.h"
 #include "m_crc32.h"
 #include "engineerrors.h"
 
+extern uint64_t I_msTime();
+
 namespace FileSys {
+
+static uint64_t g_fopenCount = 0;
+static uint64_t g_fopenTotalMs = 0;
+
+void PrintFopenStats() {
+	printf("[load] fopen: n=%llu ms=%llu\n", (unsigned long long)g_fopenCount, (unsigned long long)g_fopenTotalMs);
+	g_fopenCount = 0;
+	g_fopenTotalMs = 0;
+}
 
 #ifdef _WIN32
 std::wstring toWide(const char* str);
@@ -82,7 +94,10 @@ public:
 
 	bool Open(const char *filename, ptrdiff_t startpos = 0, ptrdiff_t len = -1)
 	{
+		uint64_t start = I_msTime();
 		File = myfopen(filename, "rb");
+		if (File != nullptr) g_fopenCount++;
+		g_fopenTotalMs += (I_msTime() - start);
 		if (File == nullptr) return false;
 #ifdef __3DS__
 		// Every read that misses the buffer is a call to the FS service; newlib's default

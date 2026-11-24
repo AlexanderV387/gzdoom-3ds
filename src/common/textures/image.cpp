@@ -31,6 +31,11 @@
 #include "printf.h"
 #include "common/utility/i_time.h"
 
+namespace FileSys {
+	void PrintFopenStats();
+	bool IsFileSystemMainThread();
+}
+
 FMemArena ImageArena(32768);
 TArray<FImageSource *>FImageSource::ImageForLump;
 int FImageSource::NextID;
@@ -72,6 +77,9 @@ void PrintImageStats()
 			Printf("  TryCreate[%d] success=%u\n", i, g_ImageStats_TryCreateSuccess[i]);
 		}
 	}
+	Printf("[load] mainThread=%d\n", IsFileSystemMainThread());
+	FileSys::PrintFopenStats();
+
 	g_ImageStats_OpenCalls = 0;
 	g_ImageStats_OpenTimeMs = 0;
 	g_ImageStats_TryCreateTimeMs = 0;
