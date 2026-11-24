@@ -28,6 +28,8 @@
 #include "files.h"
 #include "cmdlib.h"
 #include "palettecontainer.h"
+#include "printf.h"
+#include "common/utility/i_time.h"
 
 FMemArena ImageArena(32768);
 TArray<FImageSource *>FImageSource::ImageForLump;
@@ -51,6 +53,10 @@ struct PrecacheDataRgba
 	int Frame;
 };
 
+// TMap doesn't handle this kind of data well.  std::map neither. The linear search is still faster, even for a few 100 entries because it doesn't have to access the heap as often..
+TArray<PrecacheDataPaletted> precacheDataPaletted;
+TArray<PrecacheDataRgba> precacheDataRgba;
+
 static uint64_t g_ImageStats_OpenCalls = 0;
 static uint64_t g_ImageStats_OpenTimeMs = 0;
 static uint64_t g_ImageStats_TryCreateTimeMs = 0;
@@ -72,6 +78,7 @@ void PrintImageStats()
 	g_ImageStats_Bytes = 0;
 	for (int i = 0; i < 15; i++) g_ImageStats_TryCreateSuccess[i] = 0;
 }
+
 
 //===========================================================================
 //
