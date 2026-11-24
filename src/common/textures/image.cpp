@@ -32,7 +32,7 @@
 #include "common/utility/i_time.h"
 
 namespace FileSys {
-	void PrintFopenStats();
+	void GetFopenStats(uint64_t &n, uint64_t &ms);
 	bool IsFileSystemMainThread();
 }
 
@@ -77,8 +77,10 @@ void PrintImageStats()
 			Printf("  TryCreate[%d] success=%u\n", i, g_ImageStats_TryCreateSuccess[i]);
 		}
 	}
-	Printf("[load] mainThread=%d\n", IsFileSystemMainThread());
-	FileSys::PrintFopenStats();
+	Printf("[load] mainThread=%d\n", FileSys::IsFileSystemMainThread());
+	uint64_t fn = 0, fms = 0;
+	FileSys::GetFopenStats(fn, fms);
+	Printf("[load] fopen: n=%llu ms=%llu\n", (unsigned long long)fn, (unsigned long long)fms);
 
 	g_ImageStats_OpenCalls = 0;
 	g_ImageStats_OpenTimeMs = 0;

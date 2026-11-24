@@ -39,10 +39,10 @@ namespace FileSys {
 static uint64_t g_fopenCount = 0;
 static uint64_t g_fopenTotalMs = 0;
 
-void PrintFopenStats() {
-	printf("[load] fopen: n=%llu ms=%llu\n", (unsigned long long)g_fopenCount, (unsigned long long)g_fopenTotalMs);
-	g_fopenCount = 0;
-	g_fopenTotalMs = 0;
+void GetFopenStats(uint64_t &n, uint64_t &ms)
+{
+	n = g_fopenCount; ms = g_fopenTotalMs;
+	g_fopenCount = 0; g_fopenTotalMs = 0;
 }
 
 #ifdef _WIN32
