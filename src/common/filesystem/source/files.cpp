@@ -81,6 +81,184 @@ FILE *myfopen(const char *filename, const char *flags)
 //
 //==========================================================================
 
+#ifdef __3DS__
+//==========================================================================
+//
+// StdFileReader, 3DS version.
+//
+// On the 3DS every access to the card costs ~6 ms whatever its size, and
+// newlib's fseek on a buffered stream throws the buffer away (and refills it)
+// even when the target is inside it: opening uzdoom.pk3 spent 476 ms in 70
+// fseeks and 13 ms in fread. This reader keeps its own 64 KB window: Seek only
+// moves the position, and reads inside the window never touch the card.
+//
+//==========================================================================
+
+class StdFileReader : public FileReaderInterface
+{
+	static constexpr ptrdiff_t WINDOW = 64 * 1024;
+
+	FILE *File = nullptr;
+	ptrdiff_t StartPos = 0;
+	ptrdiff_t FilePos = 0;		// absolute position in the file
+	ptrdiff_t PhysPos = -1;		// where the FILE is positioned, -1 = unknown
+	uint8_t *Window = nullptr;
+	ptrdiff_t WindowStart = 0;	// absolute file offset of Window[0]
+	ptrdiff_t WindowLen = 0;
+
+public:
+	StdFileReader()
+	{}
+
+	~StdFileReader()
+	{
+		if (File != nullptr)
+		{
+			fclose(File);
+		}
+		File = nullptr;
+		free(Window);
+		Window = nullptr;
+	}
+
+	bool Open(const char *filename, ptrdiff_t startpos = 0, ptrdiff_t len = -1)
+	{
+		uint64_t start = I_msTime();
+		File = myfopen(filename, "rb");
+		if (File != nullptr) g_fopenCount++;
+		g_fopenTotalMs += (I_msTime() - start);
+		if (File == nullptr) return false;
+		setvbuf(File, nullptr, _IONBF, 0);	// the window below does the buffering
+		FilePos = startpos;
+		StartPos = startpos;
+		Length = CalcFileLen();
+		if (len >= 0 && len < Length) Length = len;
+		return true;
+	}
+
+	ptrdiff_t Tell() const override
+	{
+		return FilePos - StartPos;
+	}
+
+	ptrdiff_t Seek(ptrdiff_t offset, int origin) override
+	{
+		if (origin == SEEK_SET)
+		{
+			offset += StartPos;
+		}
+		else if (origin == SEEK_CUR)
+		{
+			offset += FilePos;
+		}
+		else if (origin == SEEK_END)
+		{
+			offset += StartPos + Length;
+		}
+		if (offset < StartPos || offset > StartPos + Length) return -1;	// out of scope
+		g_stdioSeeks++;
+		FilePos = offset;	// no card access: the next Read positions the FILE if needed
+		return 0;
+	}
+
+	ptrdiff_t Read(void *buffer, ptrdiff_t len) override
+	{
+		assert(len >= 0);
+		if (len <= 0) return 0;
+		if (FilePos + len > StartPos + Length)
+		{
+			len = Length - FilePos + StartPos;
+		}
+		if (len <= 0) return 0;
+		uint8_t *out = (uint8_t *)buffer;
+		ptrdiff_t done = 0;
+		while (done < len)
+		{
+			// served from the window
+			if (Window != nullptr && FilePos >= WindowStart && FilePos < WindowStart + WindowLen)
+			{
+				ptrdiff_t n = std::min(len - done, WindowStart + WindowLen - FilePos);
+				memcpy(out + done, Window + (FilePos - WindowStart), n);
+				done += n;
+				FilePos += n;
+				continue;
+			}
+			ptrdiff_t remaining = len - done;
+			if (remaining >= WINDOW)
+			{
+				// large read: straight from the card into the caller's buffer
+				ptrdiff_t got = PhysRead(FilePos, out + done, remaining);
+				if (got <= 0) break;
+				done += got;
+				FilePos += got;
+				continue;
+			}
+			// small read: fill the window starting at the current position
+			if (Window == nullptr)
+			{
+				Window = (uint8_t *)malloc(WINDOW);
+				if (Window == nullptr) return done;
+			}
+			ptrdiff_t fileEnd = StartPos + Length;
+			ptrdiff_t want = std::min<ptrdiff_t>(WINDOW, fileEnd - FilePos);
+			WindowLen = 0;
+			ptrdiff_t got = PhysRead(FilePos, Window, want);
+			if (got <= 0) break;
+			WindowStart = FilePos;
+			WindowLen = got;
+		}
+		return done;
+	}
+
+	char *Gets(char *strbuf, ptrdiff_t len) override
+	{
+		if (len <= 0 || len > 0x7fffffff || FilePos >= StartPos + Length) return nullptr;
+		// same contract as fgets: up to len-1 chars, stops after '\n', always terminated
+		ptrdiff_t n = 0;
+		while (n < len - 1)
+		{
+			char c;
+			if (Read(&c, 1) != 1) break;
+			strbuf[n++] = c;
+			if (c == '\n') break;
+		}
+		if (n == 0) return nullptr;
+		strbuf[n] = 0;
+		return strbuf;
+	}
+
+private:
+	ptrdiff_t PhysRead(ptrdiff_t pos, void *dest, ptrdiff_t len)
+	{
+		uint64_t t = I_msTime();
+		if (PhysPos != pos)
+		{
+			if (fseek(File, (long)pos, SEEK_SET) != 0)
+			{
+				PhysPos = -1;
+				return -1;
+			}
+		}
+		ptrdiff_t got = (ptrdiff_t)fread(dest, 1, len, File);
+		PhysPos = got > 0 ? pos + got : -1;
+		g_stdioReadMs += I_msTime() - t;
+		g_stdioReads++;
+		return got;
+	}
+
+	ptrdiff_t CalcFileLen()
+	{
+		ptrdiff_t endpos;
+
+		fseek(File, 0, SEEK_END);
+		endpos = ftell(File);
+		fseek(File, 0, SEEK_SET);
+		PhysPos = 0;
+		return endpos;
+	}
+};
+
+#else
 class StdFileReader : public FileReaderInterface
 {
 	FILE *File = nullptr;
@@ -196,6 +374,8 @@ private:
 		return endpos;
 	}
 };
+
+#endif
 
 //==========================================================================
 //
