@@ -403,8 +403,24 @@ void ParseAllDecorate();
 void SynthesizeFlagFields();
 void SetDoomCompileEnvironment();
 
+#ifdef __3DS__
+// 3DS load timing for LoadActors: each step's time in ms since the previous mark.
+void GetReadFileStats3DS(uint64_t &calls, uint64_t &bytes, uint64_t &ms);
+static uint64_t la_t = 0;
+#define LA_MARK(name) do { uint64_t now_ = I_msTime(); Printf("[load] actors: %s %llu ms\n", name, (unsigned long long)(now_ - la_t)); la_t = now_; } while (0)
+#else
+#define LA_MARK(name) do {} while (0)
+#endif
+
 void ParseScripts()
 {
+#ifdef __3DS__
+	uint64_t parseMs = 0, compileMs = 0, lumps = 0;
+	{
+		uint64_t c, b, m;
+		GetReadFileStats3DS(c, b, m);	// reset: count only what the ZScript parser reads
+	}
+#endif
 	int lump, lastlump = 0;
 	FScriptPosition::ResetErrorCounter();
 
@@ -412,11 +428,22 @@ void ParseScripts()
 	while ((lump = fileSystem.FindLump("ZSCRIPT", &lastlump)) != -1)
 	{
 		ZCCParseState state;
+#ifdef __3DS__
+		uint64_t t0 = I_msTime();
+#endif
 		auto newns = ParseOneScript(lump, state);
 		PSymbolTable symtable;
+#ifdef __3DS__
+		uint64_t t1 = I_msTime();
+		parseMs += t1 - t0;
+		lumps++;
+#endif
 
 		ZCCDoomCompiler cc(state, NULL, symtable, newns, lump, state.ParseVersion);
 		cc.Compile();
+#ifdef __3DS__
+		compileMs += I_msTime() - t1;
+#endif
 
 		if (FScriptPosition::ErrorCounter > 0)
 		{
@@ -442,6 +469,15 @@ void ParseScripts()
 		}
 		firstLump = false;
 	}
+#ifdef __3DS__
+	{
+		uint64_t c, b, m;
+		GetReadFileStats3DS(c, b, m);
+		Printf("[load] actors: zscript lumps=%llu parse=%llu ms (readfile=%llu, %llu KB, %llu ms) compile=%llu ms\n",
+			(unsigned long long)lumps, (unsigned long long)parseMs, (unsigned long long)c,
+			(unsigned long long)(b / 1024), (unsigned long long)m, (unsigned long long)compileMs);
+	}
+#endif
 }
 
 void LoadActors()
@@ -453,14 +489,20 @@ void LoadActors()
 
 	timer.Reset(); timer.Clock();
 	FScriptPosition::ResetErrorCounter();
+#ifdef __3DS__
+	la_t = I_msTime();
+#endif
 
 	SetDoomCompileEnvironment();
 	InitThingdef();
+	LA_MARK("InitThingdef");
 	FScriptPosition::StrictErrors = true;
 	ParseScripts();
+	LA_MARK("ParseScripts");
 
 	FScriptPosition::StrictErrors = strictdecorate;
 	ParseAllDecorate();
+	LA_MARK("ParseAllDecorate");
 
 	// If preferring vanilla, check if any Actors from DECORATE/ZScript were relying on transparency.
 	for (auto cls : PClass::AllClasses)
@@ -474,8 +516,10 @@ void LoadActors()
 	}
 
 	SynthesizeFlagFields();
+	LA_MARK("AutoTrans+SynthesizeFlagFields");
 
 	FunctionBuildList.Build();
+	LA_MARK("FunctionBuildList.Build");
 
 	if (FScriptPosition::ErrorCounter > 0)
 	{
@@ -558,6 +602,7 @@ void LoadActors()
 		I_Error("%d errors during actor postprocessing", FScriptPosition::ErrorCounter);
 	}
 
+	LA_MARK("postprocess (CheckStates...)");
 	timer.Unclock();
 	if (!batchrun) Printf("script parsing took %.2f ms\n", timer.TimeMS());
 
