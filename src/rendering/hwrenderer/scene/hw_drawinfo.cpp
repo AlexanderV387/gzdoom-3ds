@@ -40,6 +40,15 @@
 #include "actorinlines.h"
 #include "g_levellocals.h"
 
+#ifdef __3DS__
+// 3DS scene timing: where the main view's frame time goes. Averages per frame
+// are printed every 300 main-view frames as "[SCENE] ...".
+#include "i_time.h"
+void GetDrawSubmitStats3DS(uint64_t &draws, uint64_t &us);
+static uint64_t sc_create = 0, sc_opaque = 0, sc_portals = 0, sc_transl = 0, sc_frames = 0;
+static uint64_t SceneUs3DS() { return I_nsTime() / 1000; }
+#endif
+
 EXTERN_CVAR(Float, r_visibility)
 EXTERN_CVAR(Int, r_distance_cull_type)
 EXTERN_CVAR(Float, r_line_distance_cull)
@@ -1032,6 +1041,10 @@ void HWDrawInfo::DrawScene(int drawmode)
 		ssao_portals_available--;
 	}
 
+#ifdef __3DS__
+	const bool timed3DS = drawmode == DM_MAINVIEW;
+	uint64_t t0_3DS = timed3DS ? SceneUs3DS() : 0;
+#endif
 	if (vp.camera != nullptr)
 	{
 		ActorRenderFlags savedflags = vp.camera->renderflags;
@@ -1044,10 +1057,16 @@ void HWDrawInfo::DrawScene(int drawmode)
 	}
 	auto& RenderState = *screen->RenderState();
 
+#ifdef __3DS__
+	uint64_t t1_3DS = timed3DS ? SceneUs3DS() : 0;
+#endif
 	RenderState.SetDepthMask(true);
 	if (!gl_no_skyclear) portalState.RenderFirstSkyPortal(recursion, this, RenderState);
 
 	RenderScene(RenderState);
+#ifdef __3DS__
+	uint64_t t2_3DS = timed3DS ? SceneUs3DS() : 0;
+#endif
 
 	if (applySSAO && RenderState.GetPassType() == GBUFFER_PASS)
 	{
@@ -1060,7 +1079,30 @@ void HWDrawInfo::DrawScene(int drawmode)
 	recursion++;
 	portalState.EndFrame(this, RenderState);
 	recursion--;
+#ifdef __3DS__
+	uint64_t t3_3DS = timed3DS ? SceneUs3DS() : 0;
+#endif
 	RenderTranslucent(RenderState);
+#ifdef __3DS__
+	if (timed3DS)
+	{
+		uint64_t t4_3DS = SceneUs3DS();
+		sc_create += t1_3DS - t0_3DS;
+		sc_opaque += t2_3DS - t1_3DS;
+		sc_portals += t3_3DS - t2_3DS;
+		sc_transl += t4_3DS - t3_3DS;
+		if (++sc_frames >= 300)
+		{
+			uint64_t draws, submitUs;
+			GetDrawSubmitStats3DS(draws, submitUs);
+			const double n = (double)sc_frames;
+			Printf("[SCENE] per frame: create(BSP) %.2f ms, opaque %.2f ms, portals+sky %.2f ms, translucent %.2f ms; draws %.0f, submit (Apply+attribs+draw) %.2f ms\n",
+				sc_create / n / 1000.0, sc_opaque / n / 1000.0, sc_portals / n / 1000.0, sc_transl / n / 1000.0,
+				draws / n, submitUs / n / 1000.0);
+			sc_create = sc_opaque = sc_portals = sc_transl = sc_frames = 0;
+		}
+	}
+#endif
 }
 
 

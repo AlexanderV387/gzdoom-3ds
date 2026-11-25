@@ -16,6 +16,7 @@
 #include "texturemanager.h"
 #include "printf.h"
 #include "platform_3ds.h"
+#include "i_time.h"
 
 #ifdef __3DS__
 EXTERN_CVAR(Float, c3d_depthbias)
@@ -80,6 +81,18 @@ struct StateCache
 	float fixedTex[4], fixedColor[4];
 };
 static StateCache Shadow;
+
+// 3DS timing: draws and microseconds spent in Draw/DrawIndexed (state, attributes,
+// index copy, command emission), read and reset by the [SCENE] report.
+static uint64_t SubmitDraws = 0, SubmitUs = 0;
+} // namespace C3DRenderer
+void GetDrawSubmitStats3DS(uint64_t &draws, uint64_t &us)
+{
+	draws = C3DRenderer::SubmitDraws; us = C3DRenderer::SubmitUs;
+	C3DRenderer::SubmitDraws = C3DRenderer::SubmitUs = 0;
+}
+namespace C3DRenderer
+{
 
 void C3DRenderState::BeginFrame()
 {
@@ -791,6 +804,7 @@ void C3DRenderState::DescribeDraw(const char *kind, int dt, int first, int count
 
 void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 {
+	struct SubmitTimer { uint64_t t = I_nsTime(); ~SubmitTimer() { SubmitUs += (I_nsTime() - t) / 1000; SubmitDraws++; } } submitTimer;
 	if (dt == DT_Lines || dt == DT_Points)
 	{
 		if (!WarnedLines) { WarnedLines = true; Printf("C3D: lines and points are not drawn yet\n"); }
@@ -810,6 +824,7 @@ void C3DRenderState::Draw(int dt, int index, int count, bool apply)
 
 void C3DRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 {
+	struct SubmitTimer { uint64_t t = I_nsTime(); ~SubmitTimer() { SubmitUs += (I_nsTime() - t) / 1000; SubmitDraws++; } } submitTimer;
 	if (dt == DT_Lines || dt == DT_Points || count <= 0) return;
 	auto ib = static_cast<C3DIndexBuffer *>(mIndexBuffer);
 	if (ib == nullptr || ib->Memory() == nullptr || IndexRing == nullptr) return;
