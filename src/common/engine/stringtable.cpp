@@ -359,9 +359,28 @@ LangID FStringTable::GetID(FString lang)
 //
 //==========================================================================
 
+#ifdef __3DS__
+// 3DS: the LANGUAGE lumps hold every translation (~15 languages); storing all of them
+// costs time and memory at startup. Keep English (the default), Spanish and the
+// language the player configured; other languages fall back to English.
+static FString g_keepLanguage3DS;
+static uint64_t g_csvParseMs3DS = 0, g_csvInsertMs3DS = 0;
+static bool KeepLanguage3DS(const FString &lang)
+{
+	if (lang.CompareNoCase("default") == 0) return true;
+	if (lang.Len() >= 2 && (strnicmp(lang.GetChars(), "en", 2) == 0 || strnicmp(lang.GetChars(), "es", 2) == 0)) return true;
+	if (g_keepLanguage3DS.Len() >= 2 && lang.Len() >= 2 && strnicmp(lang.GetChars(), g_keepLanguage3DS.GetChars(), 2) == 0) return true;
+	return false;
+}
+#endif
+
 void FStringTable::LoadStrings (FileSys::FileSystem& fileSystem, const char *language)
 {
 	int lastlump, lump;
+#ifdef __3DS__
+	g_keepLanguage3DS = (language != nullptr && strnicmp(language, "auto", 5) != 0) ? language : "";
+	uint64_t lumpStart = I_msTime();
+#endif
 
 	allStrings.Clear();
 	lastlump = 0;
@@ -380,9 +399,16 @@ void FStringTable::LoadStrings (FileSys::FileSystem& fileSystem, const char *lan
 		if (!ParseLanguageCSV(filenum, lumpdata.string(), lumpdata.size()))
  			LoadLanguage (filenum, lumpdata.string(), lumpdata.size());
 	}
+#ifdef __3DS__
+	uint64_t updateStart = I_msTime();
+#endif
 	UpdateLanguage(language);
 	allMacros.Clear();
 #ifdef __3DS__
+	Printf("[load] GStrings: lumps %llu ms (csv parse %llu ms, insert %llu ms), UpdateLanguage %llu ms\n",
+		(unsigned long long)(updateStart - lumpStart), (unsigned long long)g_csvParseMs3DS, (unsigned long long)g_csvInsertMs3DS,
+		(unsigned long long)(I_msTime() - updateStart));
+	g_csvParseMs3DS = g_csvInsertMs3DS = 0;
 	Printf("[load] GStrings (T+%llu ms)\n", I_msTime());
 #endif
 }
@@ -503,7 +529,14 @@ bool FStringTable::ParseLanguageCSV(int filenum, const char* buffer, size_t size
 {
 	if (size < 11) return false;
 	if (strnicmp(buffer, "default,", 8) && strnicmp(buffer, "identifier,", 11 )) return false;
+#ifdef __3DS__
+	uint64_t parseStart = I_msTime();
+#endif
 	auto data = parseCSV(buffer, size);
+#ifdef __3DS__
+	uint64_t insertStart = I_msTime();
+	g_csvParseMs3DS += insertStart - parseStart;
+#endif
 
 	int labelcol = -1;
 	int filtercol = -1;
@@ -537,6 +570,9 @@ bool FStringTable::ParseLanguageCSV(int filenum, const char* buffer, size_t size
 						lang = "en-US";
 						hasDefaultEntry = true;
 					}
+#ifdef __3DS__
+					if (!KeepLanguage3DS(lang)) continue;
+#endif
 					langrows.Push(std::make_pair(column, GetID(lang).normalized));
 				}
 			}
@@ -587,6 +623,9 @@ bool FStringTable::ParseLanguageCSV(int filenum, const char* buffer, size_t size
 			}
 		}
 	}
+#ifdef __3DS__
+	g_csvInsertMs3DS += I_msTime() - insertStart;
+#endif
 	return true;
 }
 

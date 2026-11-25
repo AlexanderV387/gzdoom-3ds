@@ -39,6 +39,14 @@ namespace FileSys {
 static uint64_t g_fopenCount = 0;
 static uint64_t g_fopenTotalMs = 0;
 
+static uint64_t g_stdioReads = 0, g_stdioReadMs = 0, g_stdioSeeks = 0, g_stdioSeekMs = 0;
+// 3DS load timing: fread/fseek calls of the stdio file readers (reset on each call).
+void GetStdioStats3DS(uint64_t &reads, uint64_t &readMs, uint64_t &seeks, uint64_t &seekMs)
+{
+	reads = g_stdioReads; readMs = g_stdioReadMs; seeks = g_stdioSeeks; seekMs = g_stdioSeekMs;
+	g_stdioReads = g_stdioReadMs = g_stdioSeeks = g_stdioSeekMs = 0;
+}
+
 void GetFopenStats(uint64_t &n, uint64_t &ms)
 {
 	n = g_fopenCount; ms = g_fopenTotalMs;
@@ -133,7 +141,11 @@ public:
 		}
 		if (offset < StartPos || offset > StartPos + Length) return -1;	// out of scope
 
-		if (0 == fseek(File, offset, SEEK_SET))
+		uint64_t seekStart = I_msTime();
+		int seekResult = fseek(File, offset, SEEK_SET);
+		g_stdioSeekMs += I_msTime() - seekStart;
+		g_stdioSeeks++;
+		if (0 == seekResult)
 		{
 			FilePos = offset;
 			return 0;
@@ -149,7 +161,10 @@ public:
 		{
 			len = Length - FilePos + StartPos;
 		}
+		uint64_t readStart = I_msTime();
 		len = fread(buffer, 1, len, File);
+		g_stdioReadMs += I_msTime() - readStart;
+		g_stdioReads++;
 		FilePos += len;
 		return len;
 	}

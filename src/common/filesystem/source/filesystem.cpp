@@ -41,6 +41,7 @@
 // 3DS load timing: how much of the level start is spent reading whole lumps.
 extern uint64_t I_msTime();
 static uint64_t g_ReadFileCalls = 0, g_ReadFileBytes = 0, g_ReadFileMs = 0;
+namespace FileSys { void GetStdioStats3DS(uint64_t &reads, uint64_t &readMs, uint64_t &seeks, uint64_t &seekMs); }
 void GetReadFileStats3DS(uint64_t &calls, uint64_t &bytes, uint64_t &ms)
 {
 	calls = g_ReadFileCalls; bytes = g_ReadFileBytes; ms = g_ReadFileMs;
@@ -367,10 +368,23 @@ void FileSystem::AddFile (const char *filename, FileReader *filer, LumpFilterInf
 	FResourceFile *resfile;
 
 
+#ifdef __3DS__
+	uint64_t r_, rm_, sk_, skm_;
+	GetStdioStats3DS(r_, rm_, sk_, skm_);	// reset: count only this file's opening
+	uint64_t openStart3DS = I_msTime();
+#endif
 	if (!isdir)
 		resfile = FResourceFile::OpenResourceFile(filename, filereader, false, filter, Printf, stringpool, optional);
 	else
 		resfile = FResourceFile::OpenDirectory(filename, filter, Printf, stringpool, optional);
+#ifdef __3DS__
+	{
+		uint64_t openMs = I_msTime() - openStart3DS;
+		GetStdioStats3DS(r_, rm_, sk_, skm_);
+		if (Printf) Printf(FSMessageLevel::Message, "[load] open %s: %llu ms, freads=%llu (%llu ms), fseeks=%llu (%llu ms)\n", filename,
+			(unsigned long long)openMs, (unsigned long long)r_, (unsigned long long)rm_, (unsigned long long)sk_, (unsigned long long)skm_);
+	}
+#endif
 
 	if (resfile != NULL)
 	{
