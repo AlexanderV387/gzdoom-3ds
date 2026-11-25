@@ -34,6 +34,23 @@
 
 EXTERN_CVAR(Bool, gl_precache)
 
+#ifdef __3DS__
+// 3DS load timing: time spent creating/uploading textures (PrecacheMaterial) during precache.
+#include "i_time.h"
+void GetReadFileStats3DS(uint64_t &calls, uint64_t &bytes, uint64_t &ms);
+static uint64_t g_PrecacheMatCalls = 0, g_PrecacheMatMs = 0;
+static void TimedPrecacheMaterial(FMaterial *mat, int translation)
+{
+	uint64_t start = I_msTime();
+	screen->PrecacheMaterial(mat, translation);
+	g_PrecacheMatMs += I_msTime() - start;
+	g_PrecacheMatCalls++;
+}
+#define PRECACHE_MATERIAL TimedPrecacheMaterial
+#else
+#define PRECACHE_MATERIAL screen->PrecacheMaterial
+#endif
+
 //==========================================================================
 //
 // DFrameBuffer :: PrecacheTexture
@@ -48,7 +65,7 @@ static void PrecacheTexture(FGameTexture *tex, int cache)
 		if (shouldUpscale(tex, UF_Texture)) scaleflags |= CTF_Upscale;
 
 		FMaterial * gltex = FMaterial::ValidateTexture(tex, scaleflags);
-		if (gltex) screen->PrecacheMaterial(gltex, 0);
+		if (gltex) PRECACHE_MATERIAL(gltex, 0);
 	}
 }
 
@@ -61,7 +78,7 @@ static void PrecacheList(FMaterial *gltex, SpriteHits& translations)
 {
 	SpriteHits::Iterator it(translations);
 	SpriteHits::Pair* pair;
-	while (it.NextPair(pair)) screen->PrecacheMaterial(gltex, pair->Key);
+	while (it.NextPair(pair)) PRECACHE_MATERIAL(gltex, pair->Key);
 }
 
 //==========================================================================
@@ -262,6 +279,13 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 		cycle_t precache;
 		precache.Reset();
 		precache.Clock();
+#ifdef __3DS__
+		{
+			uint64_t c, b, m;
+			GetReadFileStats3DS(c, b, m);	// reset: count only what the precache reads
+			g_PrecacheMatCalls = g_PrecacheMatMs = 0;
+		}
+#endif
 
 		FImageSource::BeginPrecaching();
 
@@ -317,6 +341,15 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 
 		precache.Unclock();
 		DPrintf(DMSG_NOTIFY, "Textures precached in %.3f ms\n", precache.TimeMS());
+#ifdef __3DS__
+		{
+			uint64_t c, b, m;
+			GetReadFileStats3DS(c, b, m);
+			Printf("[load] precache: total=%.0f ms, materials=%llu (%llu ms), readfile=%llu (%llu KB, %llu ms)\n",
+				precache.TimeMS(), (unsigned long long)g_PrecacheMatCalls, (unsigned long long)g_PrecacheMatMs,
+				(unsigned long long)c, (unsigned long long)(b / 1024), (unsigned long long)m);
+		}
+#endif
 	}
 
 	delete[] spritehitlist;

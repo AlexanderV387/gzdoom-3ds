@@ -37,6 +37,17 @@
 #include "md5.hpp"
 #include "fs_stringpool.h"
 
+#ifdef __3DS__
+// 3DS load timing: how much of the level start is spent reading whole lumps.
+extern uint64_t I_msTime();
+static uint64_t g_ReadFileCalls = 0, g_ReadFileBytes = 0, g_ReadFileMs = 0;
+void GetReadFileStats3DS(uint64_t &calls, uint64_t &bytes, uint64_t &ms)
+{
+	calls = g_ReadFileCalls; bytes = g_ReadFileBytes; ms = g_ReadFileMs;
+	g_ReadFileCalls = g_ReadFileBytes = g_ReadFileMs = 0;
+}
+#endif
+
 namespace FileSys {
 
 // MACROS ------------------------------------------------------------------
@@ -1279,7 +1290,16 @@ FileData FileSystem::ReadFile (int lump)
 	{
 		throw FileSystemException("ReadFile: %u >= NumEntries", lump);
 	}
+#ifdef __3DS__
+	uint64_t start = I_msTime();
+	FileData fd = FileInfo[lump].resfile->Read(FileInfo[lump].resindex);
+	g_ReadFileMs += I_msTime() - start;
+	g_ReadFileCalls++;
+	g_ReadFileBytes += fd.size();
+	return fd;
+#else
 	return FileInfo[lump].resfile->Read(FileInfo[lump].resindex);
+#endif
 }
 
 //==========================================================================
