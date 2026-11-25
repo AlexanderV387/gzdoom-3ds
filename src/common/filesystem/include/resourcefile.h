@@ -144,6 +144,9 @@ public:
 protected:
 	FileReader Reader;
 	const char* FileName;
+#ifdef __3DS__
+	void* DirectFile3DS = nullptr;	// unbuffered FILE* for whole-lump reads (see FResourceFile::Read)
+#endif
 	FResourceEntry* Entries = nullptr;
 	uint32_t NumLumps;
 	char Hash[48];

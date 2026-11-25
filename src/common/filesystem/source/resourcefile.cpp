@@ -22,6 +22,8 @@
 */
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <miniz.h>
 #include "resourcefile.h"
 #include "md5.hpp"
@@ -216,6 +218,9 @@ FResourceFile::FResourceFile(const char *filename, FileReader &r, StringPool* sp
 
 FResourceFile::~FResourceFile()
 {
+#ifdef __3DS__
+	if (DirectFile3DS != nullptr) fclose((FILE*)DirectFile3DS);
+#endif
 	if (!stringpool->shared) delete stringpool;
 }
 
@@ -736,6 +741,30 @@ FileData FResourceFile::Read(uint32_t entry)
 		}
 	}
 
+#ifdef __3DS__
+	// On the SD card the shared reader's 64 KB stdio buffer turns every random lump read
+	// (the level precache reads textures in no particular order) into a 64 KB card read:
+	// ~7 ms for a 3 KB patch. Read the exact lump through a second, unbuffered handle instead.
+	if (entry < NumLumps && !(Entries[entry].Flags & RESFF_COMPRESSED) && Entries[entry].Length > 0 &&
+		mainThread && FileName != nullptr && strncmp(FileName, "sdmc:", 5) == 0)
+	{
+		if (Entries[entry].Flags & RESFF_NEEDFILESTART) SetEntryAddress(entry);
+		if (DirectFile3DS == nullptr)
+		{
+			FILE* f = fopen(FileName, "rb");
+			if (f != nullptr) setvbuf(f, nullptr, _IONBF, 0);
+			DirectFile3DS = f;
+		}
+		FILE* f = (FILE*)DirectFile3DS;
+		if (f != nullptr && fseek(f, (long)Entries[entry].Position, SEEK_SET) == 0)
+		{
+			FileData data;
+			size_t len = (size_t)Entries[entry].Length;
+			if (fread(data.allocate(len), 1, len, f) == len) return data;
+		}
+		// fall through to the normal path on any failure
+	}
+#endif
 	auto fr = GetEntryReader(entry, READER_SHARED, 0);
 	return fr.Read(entry < NumLumps ? Entries[entry].Length : 0);
 }
