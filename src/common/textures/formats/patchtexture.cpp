@@ -142,6 +142,14 @@ FImageSource *PatchImage_TryCreate(FileReader & file, int lumpnum)
 	return nullptr;
 }
 
+#ifdef __3DS__
+// 3DS image cache (image.cpp): rebuilds a patch from its cached header values without reading the lump.
+FImageSource *PatchImage_CreateCached(int lumpnum, int width, int height, int leftoffset, int topoffset, bool isalpha)
+{
+	return new FPatchTexture(lumpnum, width, height, leftoffset, topoffset, isalpha);
+}
+#endif
+
 //==========================================================================
 //
 //

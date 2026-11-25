@@ -41,6 +41,9 @@
 #include "m_round.h"
 
 extern void PrintImageStats();
+#ifdef __3DS__
+void ImageCache3DS_Save();
+#endif
 
 using namespace FileSys;
 FTextureManager TexMan;
@@ -1242,6 +1245,10 @@ void FTextureManager::AddTextures(void (*progressFunc_)(), void (*checkForHacks)
 		build.ResolveAllPatches();
 		Printf("[load] ResolveAllPatches %llu ms\n", I_msTime() - start);
 	}
+
+#ifdef __3DS__
+	ImageCache3DS_Save();
+#endif
 
 	// Add one marker so that the last WAD is easier to handle and treat
 	// custom textures as a completely separate block.

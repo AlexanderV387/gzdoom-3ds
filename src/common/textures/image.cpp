@@ -89,6 +89,145 @@ void PrintImageStats()
 	for (int i = 0; i < 15; i++) g_ImageStats_TryCreateSuccess[i] = 0;
 }
 
+#ifdef __3DS__
+//===========================================================================
+//
+// 3DS image cache. Detecting the format of every graphic in an SD card WAD
+// reads ~12 MB from the card at startup (doom2.wad: ~4.4 s). The result of
+// that detection (patch header values, flat, or "not an image") is saved per
+// WAD in sdmc:/3ds/gzdoom/cache/img-XXXXXXXX.bin, so later boots create the
+// image sources without reading the lumps. Only patches and flats are cached.
+// The file is invalidated by the WAD's size, date and lump count.
+//
+//===========================================================================
+
+#include <3ds.h>
+#include <sys/stat.h>
+#include <strings.h>
+#include <vector>
+#include <algorithm>
+#include "m_crc32.h"
+
+FImageSource *PatchImage_CreateCached(int lumpnum, int width, int height, int leftoffset, int topoffset, bool isalpha);
+FImageSource *FlatImage_TryCreate(FileReader &, int lumpnum);
+
+enum : uint8_t { IC_UNKNOWN = 0, IC_NONE = 1, IC_NONE_FLAT = 2, IC_PATCH = 3, IC_FLAT = 4 };
+
+#pragma pack(push, 1)
+struct ImgCacheEntry { uint8_t kind; uint8_t isalpha; int16_t w, h, lo, to; };
+struct ImgCacheHeader { uint32_t magic, version, filesize, mtime, numlumps, entrysize; };
+#pragma pack(pop)
+
+static const uint32_t IMGCACHE_MAGIC = 0x43494433;	// "3DIC"
+static const uint32_t IMGCACHE_VERSION = 1;
+
+struct ImgCacheWad
+{
+	bool usable = false;	// a .wad on the SD card
+	bool dirty = false;		// entries changed since the file was read
+	int firstlump = 0;
+	ImgCacheHeader hdr = {};
+	char path[128] = {};
+	std::vector<ImgCacheEntry> entries;
+};
+
+static std::vector<ImgCacheWad *> g_ImgCache;	// indexed by wad number
+static uint64_t g_ImageStats_CacheHits = 0;
+
+static ImgCacheWad *ImgCacheFor(int lumpnum)
+{
+	int wadnum = fileSystem.GetFileContainer(lumpnum);
+	if (wadnum < 0) return nullptr;
+	if (g_ImgCache.size() <= (size_t)wadnum) g_ImgCache.resize(wadnum + 1, nullptr);
+	if (g_ImgCache[wadnum] != nullptr) return g_ImgCache[wadnum]->usable ? g_ImgCache[wadnum] : nullptr;
+
+	ImgCacheWad *c = new ImgCacheWad;
+	g_ImgCache[wadnum] = c;
+
+	const char *name = fileSystem.GetResourceFileFullName(wadnum);
+	size_t len = name ? strlen(name) : 0;
+	struct stat st;
+	if (len < 9 || strncmp(name, "sdmc:", 5) != 0 || strcasecmp(name + len - 4, ".wad") != 0 || stat(name, &st) != 0)
+		return nullptr;
+
+	c->usable = true;
+	c->firstlump = fileSystem.GetFirstEntry(wadnum);
+	int numlumps = fileSystem.GetLastEntry(wadnum) - c->firstlump + 1;
+	c->hdr.magic = IMGCACHE_MAGIC;
+	c->hdr.version = IMGCACHE_VERSION;
+	c->hdr.filesize = (uint32_t)st.st_size;
+	c->hdr.mtime = (uint32_t)st.st_mtime;
+	c->hdr.numlumps = (uint32_t)numlumps;
+	c->hdr.entrysize = (uint32_t)sizeof(ImgCacheEntry);
+	snprintf(c->path, sizeof(c->path), "sdmc:/3ds/gzdoom/cache/img-%08x.bin",
+		(unsigned)(CalcCRC32((const uint8_t *)name, (unsigned)len) ^ c->hdr.filesize));
+	c->entries.assign(numlumps, ImgCacheEntry{});
+
+	uint64_t start = I_msTime();
+	FILE *f = fopen(c->path, "rb");
+	if (f != nullptr)
+	{
+		ImgCacheHeader h;
+		bool ok = fread(&h, sizeof(h), 1, f) == 1 && memcmp(&h, &c->hdr, sizeof(h)) == 0 &&
+			fread(c->entries.data(), sizeof(ImgCacheEntry), numlumps, f) == (size_t)numlumps;
+		fclose(f);
+		if (!ok) c->entries.assign(numlumps, ImgCacheEntry{});
+		Printf("[load] imgcache: %s %s (%llums)\n", c->path, ok ? "leída" : "no válida", (unsigned long long)(I_msTime() - start));
+	}
+	else
+	{
+		Printf("[load] imgcache: %s no existe, se creará\n", c->path);
+	}
+	return c;
+}
+
+struct ImgCacheWriteData
+{
+	char path[128];
+	ImgCacheHeader hdr;
+	std::vector<ImgCacheEntry> entries;
+};
+
+static void ImgCacheWriteThread(void *arg)
+{
+	ImgCacheWriteData *data = (ImgCacheWriteData *)arg;
+	FILE *f = fopen(data->path, "wb");
+	if (f != nullptr)
+	{
+		bool ok = fwrite(&data->hdr, sizeof(data->hdr), 1, f) == 1 &&
+			fwrite(data->entries.data(), sizeof(ImgCacheEntry), data->entries.size(), f) == data->entries.size();
+		fclose(f);
+		if (!ok) remove(data->path);
+	}
+	delete data;
+}
+
+// Called once after all WADs' textures were added (texturemanager.cpp).
+void ImageCache3DS_Save()
+{
+	for (ImgCacheWad *c : g_ImgCache)
+	{
+		if (c == nullptr || !c->usable || !c->dirty) continue;
+		mkdir("sdmc:/3ds/gzdoom", 0777);
+		mkdir("sdmc:/3ds/gzdoom/cache", 0777);
+		ImgCacheWriteData *data = new ImgCacheWriteData;
+		memcpy(data->path, c->path, sizeof(data->path));
+		data->hdr = c->hdr;
+		data->entries = c->entries;
+		int priority = 0x30;	// same as the colour table cache writer (v_colortables.cpp)
+#ifdef CUR_THREAD_HANDLE
+		svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+#endif
+		priority = std::clamp(priority + 4, 0x18, 0x3F);
+		if (threadCreate(ImgCacheWriteThread, data, 32768, priority, 0, true) == nullptr) delete data;
+		c->dirty = false;
+		Printf("[load] imgcache: %s se guarda en segundo plano\n", c->path);
+	}
+	Printf("[load] imgcache: aciertos=%llu\n", (unsigned long long)g_ImageStats_CacheHits);
+	g_ImageStats_CacheHits = 0;
+}
+#endif
+
 
 //===========================================================================
 //
@@ -398,6 +537,35 @@ FImageSource * FImageSource::GetImage(int lumpnum, bool isflat)
 	// An image for this lump already exists. We do not need another one.
 	if (ImageForLump[lumpnum] != nullptr) return ImageForLump[lumpnum];
 
+#ifdef __3DS__
+	// A cached detection result makes reading the lump unnecessary (see ImgCacheFor).
+	ImgCacheWad *icw = ImgCacheFor(lumpnum);
+	ImgCacheEntry *ice = nullptr;
+	if (icw != nullptr && lumpnum >= icw->firstlump && (size_t)(lumpnum - icw->firstlump) < icw->entries.size())
+		ice = &icw->entries[lumpnum - icw->firstlump];
+	if (ice != nullptr)
+	{
+		if (ice->kind == IC_PATCH)
+		{
+			g_ImageStats_CacheHits++;
+			ImageForLump[lumpnum] = PatchImage_CreateCached(lumpnum, ice->w, ice->h, ice->lo, ice->to, ice->isalpha != 0);
+			return ImageForLump[lumpnum];
+		}
+		if (ice->kind == IC_FLAT && isflat)
+		{
+			g_ImageStats_CacheHits++;
+			FileReader unused;
+			ImageForLump[lumpnum] = FlatImage_TryCreate(unused, lumpnum);
+			return ImageForLump[lumpnum];
+		}
+		if (ice->kind == (isflat ? IC_NONE_FLAT : IC_NONE))
+		{
+			g_ImageStats_CacheHits++;
+			return nullptr;
+		}
+	}
+#endif
+
 	g_ImageStats_OpenCalls++;
 	uint64_t openStart = I_msTime();
 	auto data = fileSystem.OpenFileReader(lumpnum);
@@ -418,12 +586,34 @@ FImageSource * FImageSource::GetImage(int lumpnum, bool isflat)
 			{
 				g_ImageStats_TryCreateSuccess[i]++;
 				ImageForLump[lumpnum] = image;
+#ifdef __3DS__
+				// Only flats and Doom patches are cached: indexes of FlatImage_TryCreate and
+				// PatchImage_TryCreate in CreateInfo above.
+				if (ice != nullptr && (i == 11 || i == 12))
+				{
+					auto ofs = image->GetOffsets();
+					ice->kind = (i == 12) ? IC_PATCH : IC_FLAT;
+					ice->isalpha = image->UseGamePalette() ? 0 : 1;
+					ice->w = (int16_t)image->GetWidth();
+					ice->h = (int16_t)image->GetHeight();
+					ice->lo = (int16_t)ofs.first;
+					ice->to = (int16_t)ofs.second;
+					icw->dirty = true;
+				}
+#endif
 				g_ImageStats_TryCreateTimeMs += (I_msTime() - tryStart);
 				return image;
 			}
 		}
 	}
 	g_ImageStats_TryCreateTimeMs += (I_msTime() - tryStart);
+#ifdef __3DS__
+	if (ice != nullptr)
+	{
+		ice->kind = isflat ? IC_NONE_FLAT : IC_NONE;
+		icw->dirty = true;
+	}
+#endif
 
 	return nullptr;
 }
