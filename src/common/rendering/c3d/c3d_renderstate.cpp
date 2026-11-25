@@ -62,6 +62,25 @@ static bool CommandBufferHasRoom()
 static uint64_t LastPermutation;
 static int LastAttribCount, LastBufResult;
 
+// Shadow copies of the GPU state the last draw set. citro3d re-sends every piece of
+// state it is handed, changed or not, so Apply only hands it what changed since the
+// previous draw. Everything is forgotten at the end of each frame (ResetDeviceState),
+// because other code (the presenter, diagnostics) changes GPU state between frames.
+struct StateCache
+{
+	bool valid = false;
+	GPU_BLENDEQUATION blendEq; GPU_BLENDFACTOR blendSrc, blendDst;
+	C3D_TexEnv env[6];
+	bool alphaOn; int alphaRef;
+	bool depthOn; GPU_TESTFUNC depthFunc; GPU_WRITEMASK depthMask;
+	bool stencilOn; int stencilRef, stencilOp;
+	C3D_FVec mvp[4], texmat[2], colorscale, colormul;
+	C3D_AttrInfo attr;
+	C3D_BufInfo buf;
+	float fixedTex[4], fixedColor[4];
+};
+static StateCache Shadow;
+
 void C3DRenderState::BeginFrame()
 {
 	if (IndexRing == nullptr)
@@ -73,6 +92,7 @@ void C3DRenderState::BeginFrame()
 
 void C3DRenderState::ResetDeviceState()
 {
+	Shadow.valid = false;
 	mBoundTexture = nullptr;
 	mLastMaterial = nullptr;
 	mLastClamp = mLastTranslation = -1;
@@ -261,6 +281,8 @@ void C3DRenderState::ApplyBlendMode()
 		dst = GPU_ONE_MINUS_SRC_ALPHA;
 		break;
 	}
+	if (Shadow.valid && Shadow.blendEq == eq && Shadow.blendSrc == src && Shadow.blendDst == dst) return;
+	Shadow.blendEq = eq; Shadow.blendSrc = src; Shadow.blendDst = dst;
 	C3D_AlphaBlend(eq, eq, src, dst, src, dst);
 }
 
@@ -279,7 +301,9 @@ static uint32_t PackColor(const FVector4PalEntry &c)
 
 void C3DRenderState::ApplyCombiners(bool textured, int texMode)
 {
-	C3D_TexEnv *env = C3D_GetTexEnv(0);
+	C3D_TexEnv envs[6];
+	memset(envs, 0, sizeof(envs));
+	C3D_TexEnv *env = &envs[0];
 	C3D_TexEnvInit(env);
 	if (!textured)
 	{
@@ -325,7 +349,7 @@ void C3DRenderState::ApplyCombiners(bool textured, int texMode)
 	}
 
 	// Stage 1: the object color (multiplied in).
-	env = C3D_GetTexEnv(1);
+	env = &envs[1];
 	C3D_TexEnvInit(env);
 	const uint32_t objectColor = PackColor(mStreamData.uObjectColor);
 	if (objectColor != 0xffffffff && texMode != TM_FIXEDCOLORMAP)
@@ -341,7 +365,7 @@ void C3DRenderState::ApplyCombiners(bool textured, int texMode)
 	}
 
 	// Stage 2: the add color.
-	env = C3D_GetTexEnv(2);
+	env = &envs[2];
 	C3D_TexEnvInit(env);
 	const uint32_t addColor = PackColor(mStreamData.uAddColor) & 0xffffff;
 	if (addColor != 0 && texMode != TM_FIXEDCOLORMAP)
@@ -359,10 +383,16 @@ void C3DRenderState::ApplyCombiners(bool textured, int texMode)
 	}
 	for (int i = 3; i < 6; i++)
 	{
-		env = C3D_GetTexEnv(i);
+		env = &envs[i];
 		C3D_TexEnvInit(env);
 		C3D_TexEnvSrc(env, C3D_Both, GPU_PREVIOUS, GPU_PREVIOUS, GPU_PREVIOUS);
 		C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+	}
+	for (int i = 0; i < 6; i++)
+	{
+		if (Shadow.valid && memcmp(&Shadow.env[i], &envs[i], sizeof(C3D_TexEnv)) == 0) continue;
+		*C3D_GetTexEnv(i) = envs[i];
+		Shadow.env[i] = envs[i];
 	}
 }
 
@@ -404,14 +434,14 @@ void C3DRenderState::ApplyMatrices()
 	float rx[4], ry[4], rz[4], rw[4];
 	row(0, rx); row(1, ry); row(2, rz); row(3, rw);
 
-	C3D_FVec *u = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.mvp, 4);
+	C3D_FVec u[4];
 	// Tilt: the frame buffer's x is the screen's y, its y the screen's -x.
 	u[0] = FVec4_New(ry[0], ry[1], ry[2], ry[3]);
 	u[1] = FVec4_New(-rx[0], -rx[1], -rx[2], -rx[3]);
 	u[2] = FVec4_New(0.5f * rz[0] - 0.5f * rw[0], 0.5f * rz[1] - 0.5f * rw[1], 0.5f * rz[2] - 0.5f * rw[2], 0.5f * rz[3] - 0.5f * rw[3]);
 	u[3] = FVec4_New(rw[0], rw[1], rw[2], rw[3]);
 
-	C3D_FVec *t = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.texmat, 2);
+	C3D_FVec t[2] = { FVec4_New(1, 0, 0, 0), FVec4_New(0, 1, 0, 0) };
 	if (mTextureMatrixEnabled)
 	{
 		const float *m = mTextureMatrix.get();
@@ -498,6 +528,16 @@ void C3DRenderState::ApplyMatrices()
 		t[0] = FVec4_New(1, 0, 0, 0);
 		t[1] = FVec4_New(0, 1, 0, 0);
 	}
+	if (!Shadow.valid || memcmp(Shadow.mvp, u, sizeof(u)) != 0)
+	{
+		memcpy(Shadow.mvp, u, sizeof(u));
+		memcpy(C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.mvp, 4), u, sizeof(u));
+	}
+	if (!Shadow.valid || memcmp(Shadow.texmat, t, sizeof(t)) != 0)
+	{
+		memcpy(Shadow.texmat, t, sizeof(t));
+		memcpy(C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.texmat, 2), t, sizeof(t));
+	}
 }
 
 //==========================================================================
@@ -511,10 +551,17 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	auto vb = static_cast<C3DVertexBuffer *>(mVertexBuffer);
 	if (vb == nullptr || vb->Memory() == nullptr) return false;
 
-	C3D_AttrInfo *ai = C3D_GetAttrInfo();
+	// Built locally and handed to citro3d only when different from the last draw's.
+	C3D_AttrInfo aiLocal;
+	memset(&aiLocal, 0, sizeof(aiLocal));
+	C3D_AttrInfo *ai = &aiLocal;
 	AttrInfo_Init(ai);
-	C3D_BufInfo *bi = C3D_GetBufInfo();
+	C3D_BufInfo biLocal;
+	memset(&biLocal, 0, sizeof(biLocal));
+	C3D_BufInfo *bi = &biLocal;
 	BufInfo_Init(bi);
+	float fixedTex[4] = { -1, -1, -1, -1 }, fixedColor[4] = { -1, -1, -1, -1 };
+	int fixedTexIndex = -1, fixedColorIndex = -1;
 
 	// Loaders, in the buffer's order (sorted by offset), with padding between them.
 	uint64_t permutation = 0;
@@ -570,11 +617,12 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	// What the buffer lacks comes from fixed attributes.
 	if (!haveTex)
 	{
-		const int index = AttrInfo_AddFixed(ai, 1);
-		C3D_FixedAttribSet(index, 0, 0, 0, 0);
+		fixedTexIndex = AttrInfo_AddFixed(ai, 1);
+		fixedTex[0] = fixedTex[1] = fixedTex[2] = fixedTex[3] = 0;
 	}
-	C3D_FVec *cs = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colorscale, 1);
-	C3D_FVec *cm = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colormul, 1);
+	C3D_FVec csLocal, cmLocal;
+	C3D_FVec *cs = &csLocal;
+	C3D_FVec *cm = &cmLocal;
 	// The software light level (0..1) darkens the whole surface; distance falls off with the fog.
 	float light = 1.f;
 	if (mLightParms[3] >= 0.f) light = std::clamp(mLightParms[3], 0.f, 1.f);
@@ -585,9 +633,9 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	}
 	else
 	{
-		const int index = AttrInfo_AddFixed(ai, 2);
+		fixedColorIndex = AttrInfo_AddFixed(ai, 2);
 		const auto &c = mStreamData.uVertexColor;
-		C3D_FixedAttribSet(index, c.X, c.Y, c.Z, c.W);
+		fixedColor[0] = c.X; fixedColor[1] = c.Y; fixedColor[2] = c.Z; fixedColor[3] = c.W;
 		*cs = FVec4_New(1.f, 1.f, 1.f, 1.f);
 		*cm = FVec4_New(light, light, light, 1.f);
 	}
@@ -597,7 +645,42 @@ bool C3DRenderState::SetupAttributes(int baseVertex)
 	LastPermutation = permutation;
 	LastAttribCount = count;
 	LastBufResult = bufInfoResult;
-	return bufInfoResult >= 0;	// -2: the vertices are not in memory the GPU can read
+	if (bufInfoResult < 0) return false;	// -2: the vertices are not in memory the GPU can read
+
+	const bool attrChanged = !Shadow.valid || memcmp(&Shadow.attr, &aiLocal, sizeof(aiLocal)) != 0;
+	if (attrChanged)
+	{
+		Shadow.attr = aiLocal;
+		*C3D_GetAttrInfo() = aiLocal;
+	}
+	if (!Shadow.valid || memcmp(&Shadow.buf, &biLocal, sizeof(biLocal)) != 0)
+	{
+		Shadow.buf = biLocal;
+		*C3D_GetBufInfo() = biLocal;
+	}
+	// Fixed attributes: re-set when their slot or value changed.
+	if (fixedTexIndex >= 0 && (attrChanged || memcmp(Shadow.fixedTex, fixedTex, sizeof(fixedTex)) != 0))
+	{
+		memcpy(Shadow.fixedTex, fixedTex, sizeof(fixedTex));
+		C3D_FixedAttribSet(fixedTexIndex, fixedTex[0], fixedTex[1], fixedTex[2], fixedTex[3]);
+	}
+	if (fixedColorIndex >= 0 && (attrChanged || memcmp(Shadow.fixedColor, fixedColor, sizeof(fixedColor)) != 0))
+	{
+		memcpy(Shadow.fixedColor, fixedColor, sizeof(fixedColor));
+		C3D_FixedAttribSet(fixedColorIndex, fixedColor[0], fixedColor[1], fixedColor[2], fixedColor[3]);
+	}
+	if (!Shadow.valid || memcmp(&Shadow.colorscale, cs, sizeof(C3D_FVec)) != 0)
+	{
+		Shadow.colorscale = *cs;
+		*C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colorscale, 1) = *cs;
+	}
+	if (!Shadow.valid || memcmp(&Shadow.colormul, cm, sizeof(C3D_FVec)) != 0)
+	{
+		Shadow.colormul = *cm;
+		*C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, Uniforms.colormul, 1) = *cm;
+	}
+	Shadow.valid = true;	// every cached piece now matches what citro3d holds
+	return true;
 }
 
 //==========================================================================
@@ -621,14 +704,28 @@ bool C3DRenderState::Apply(int dt)
 	if (texMode < 0) texMode = TM_NORMAL;
 	ApplyCombiners(textured, texMode);
 
-	if (mAlphaThreshold >= 0.f && textured)
-		C3D_AlphaTest(true, GPU_GREATER, std::clamp(int(mAlphaThreshold * 255.f), 0, 255));
-	else
-		C3D_AlphaTest(false, GPU_ALWAYS, 0);
+	{
+		const bool alphaOn = mAlphaThreshold >= 0.f && textured;
+		const int alphaRef = alphaOn ? std::clamp(int(mAlphaThreshold * 255.f), 0, 255) : 0;
+		if (!Shadow.valid || Shadow.alphaOn != alphaOn || Shadow.alphaRef != alphaRef)
+		{
+			Shadow.alphaOn = alphaOn; Shadow.alphaRef = alphaRef;
+			if (alphaOn) C3D_AlphaTest(true, GPU_GREATER, alphaRef);
+			else C3D_AlphaTest(false, GPU_ALWAYS, 0);
+		}
+	}
 
 	static const GPU_TESTFUNC depthFuncs[] = { GPU_GREATER, GPU_GEQUAL, GPU_ALWAYS };
 	const GPU_WRITEMASK writeMask = (GPU_WRITEMASK)(mColorWrite | (mDepthMask ? GPU_WRITE_DEPTH : 0));
-	C3D_DepthTest(mDepthTest, depthFuncs[std::clamp(mDepthFunc, 0, 2)], writeMask);
+	{
+		const bool depthOn = mDepthTest;
+		const GPU_TESTFUNC depthFunc = depthFuncs[std::clamp(mDepthFunc, 0, 2)];
+		if (!Shadow.valid || Shadow.depthOn != depthOn || Shadow.depthFunc != depthFunc || Shadow.depthMask != writeMask)
+		{
+			Shadow.depthOn = depthOn; Shadow.depthFunc = depthFunc; Shadow.depthMask = writeMask;
+			C3D_DepthTest(depthOn, depthFunc, writeMask);
+		}
+	}
 #ifdef __3DS__
 	if (mBias.mChanged)
 	{
@@ -638,17 +735,26 @@ bool C3DRenderState::Apply(int dt)
 		mBias.mChanged = false;
 	}
 #endif
-	C3D_CullFace(GPU_CULL_NONE);
+	if (!Shadow.valid) C3D_CullFace(GPU_CULL_NONE);
 
-	if (mStencilEnabled)
 	{
-		static const GPU_STENCILOP ops[] = { GPU_STENCIL_KEEP, GPU_STENCIL_INCR, GPU_STENCIL_DECR };
-		C3D_StencilTest(true, GPU_EQUAL, mStencilRef & 0xff, 0xff, 0xff);
-		C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, ops[std::clamp(mStencilOp, 0, 2)]);
-	}
-	else
-	{
-		C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+		const bool stencilOn = mStencilEnabled;
+		const int stencilRef = stencilOn ? (mStencilRef & 0xff) : 0;
+		const int stencilOp = stencilOn ? std::clamp(mStencilOp, 0, 2) : 0;
+		if (!Shadow.valid || Shadow.stencilOn != stencilOn || Shadow.stencilRef != stencilRef || Shadow.stencilOp != stencilOp)
+		{
+			Shadow.stencilOn = stencilOn; Shadow.stencilRef = stencilRef; Shadow.stencilOp = stencilOp;
+			if (stencilOn)
+			{
+				static const GPU_STENCILOP ops[] = { GPU_STENCIL_KEEP, GPU_STENCIL_INCR, GPU_STENCIL_DECR };
+				C3D_StencilTest(true, GPU_EQUAL, stencilRef, 0xff, 0xff);
+				C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, ops[stencilOp]);
+			}
+			else
+			{
+				C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+			}
+		}
 	}
 
 	ApplyMatrices();
