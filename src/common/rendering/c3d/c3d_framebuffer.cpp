@@ -39,6 +39,21 @@
 EXTERN_CVAR(Bool, vid_vsync)
 CVAR(Int, c3d_wipeorient, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
+// Split the frame's command list after the main 3D view, so the GPU starts drawing the
+// scene while the CPU builds the HUD and the next tic. Without it the GPU only gets the
+// whole frame at C3D_FrameEnd and the next frame waits for it (gu ~4-5 ms a frame).
+CVAR(Bool, c3d_framesplit, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+void C3DSplitFrameAfterScene()
+{
+	if (!c3d_framesplit) return;
+	// The GPU reads vertices, indices and textures from linear memory: write back the CPU
+	// cache first, as C3D_FrameEnd does for the whole frame.
+	extern u32 __ctru_linear_heap;
+	extern u32 __ctru_linear_heap_size;
+	GSPGPU_FlushDataCache((void *)__ctru_linear_heap, __ctru_linear_heap_size);
+	C3D_FrameSplit(0);	// no-op outside a frame
+}
+
 void Draw2D(F2DDrawer *drawer, FRenderState &state);
 
 namespace C3DRenderer

@@ -59,7 +59,7 @@ bool inited = false;
 // On the New 3DS the worker runs on core 2 instead, one step below the music thread's
 // priority (0x30) so the music is never starved. Falls back to the engine's thread when
 // core 2 is not available (Old 3DS) or r_worker_core2 is off.
-CVAR(Bool, r_worker_core2, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, r_worker_core2, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 static Thread Worker3DS = nullptr;
 static LightEvent WorkerStart3DS, WorkerDone3DS;
 static std::function<void()> WorkerJob3DS;
