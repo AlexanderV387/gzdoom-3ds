@@ -51,6 +51,52 @@ thread_local bool isWorkerThread;
 ctpl::thread_pool renderPool(1);
 bool inited = false;
 
+#ifdef __3DS__
+#include <3ds.h>
+#include <functional>
+// UZDoom's render worker (gl_multithread) is a std::thread, which on the 3DS lands on
+// core 0 with the game: the BSP walk and the wall/flat/sprite jobs never ran in parallel.
+// On the New 3DS the worker runs on core 2 instead, one step below the music thread's
+// priority (0x30) so the music is never starved. Falls back to the engine's thread when
+// core 2 is not available (Old 3DS) or r_worker_core2 is off.
+CVAR(Bool, r_worker_core2, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+static Thread Worker3DS = nullptr;
+static LightEvent WorkerStart3DS, WorkerDone3DS;
+static std::function<void()> WorkerJob3DS;
+static bool WorkerFailed3DS = false;
+
+static void WorkerMain3DS(void *)
+{
+	while (true)
+	{
+		LightEvent_Wait(&WorkerStart3DS);
+		WorkerJob3DS();
+		LightEvent_Signal(&WorkerDone3DS);
+	}
+}
+
+static bool StartWorker3DS(std::function<void()> job)
+{
+	if (!r_worker_core2 || WorkerFailed3DS) return false;
+	if (Worker3DS == nullptr)
+	{
+		LightEvent_Init(&WorkerStart3DS, RESET_ONESHOT);
+		LightEvent_Init(&WorkerDone3DS, RESET_ONESHOT);
+		Worker3DS = threadCreate(WorkerMain3DS, nullptr, 256 * 1024, 0x31, 2, true);
+		if (Worker3DS == nullptr)
+		{
+			WorkerFailed3DS = true;
+			Printf("[BSP] worker on core 2 not available, using the engine's thread\n");
+			return false;
+		}
+		Printf("[BSP] render worker on core 2\n");
+	}
+	WorkerJob3DS = std::move(job);
+	LightEvent_Signal(&WorkerStart3DS);
+	return true;
+}
+#endif
+
 const int MAXDITHERACTORS = 20; // Maximum number of enemies that can set dither-transparency flags
 AActor* RenderedTargets[MAXDITHERACTORS];
 int RTnum;
@@ -1108,6 +1154,24 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 	validcount++;	// used for processing sidedefs only once by the renderer.
 
 	multithread = gl_multithread;
+#ifdef __3DS__
+	if (multithread)
+	{
+		jobQueue.ReleaseAll();
+	}
+	if (multithread && StartWorker3DS([this]() { WorkerThread(); }))
+	{
+		if (Viewpoint.bDoOrtho && ((Level->flags3 & LEVEL3_NOFOGOFWAR) || !r_radarclipper)) RenderOrthoNoFog();
+		else RenderBSPNode(node);
+
+		jobQueue.AddJob(RenderJob::TerminateJob, nullptr, nullptr);
+		Bsp.Unclock();
+		MTWait.Clock();
+		LightEvent_Wait(&WorkerDone3DS);
+		MTWait.Unclock();
+	}
+	else
+#endif
 	if (multithread)
 	{
 		jobQueue.ReleaseAll();

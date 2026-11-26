@@ -45,7 +45,6 @@
 // are printed every 300 main-view frames as "[SCENE] ...".
 #include "i_time.h"
 void GetDrawSubmitStats3DS(uint64_t &draws, uint64_t &us);
-void C3DSplitFrameAfterScene();
 static uint64_t sc_create = 0, sc_opaque = 0, sc_portals = 0, sc_transl = 0, sc_frames = 0;
 static uint64_t SceneUs3DS() { return I_nsTime() / 1000; }
 #endif
@@ -1087,7 +1086,6 @@ void HWDrawInfo::DrawScene(int drawmode)
 #ifdef __3DS__
 	if (timed3DS)
 	{
-		C3DSplitFrameAfterScene();
 		uint64_t t4_3DS = SceneUs3DS();
 		sc_create += t1_3DS - t0_3DS;
 		sc_opaque += t2_3DS - t1_3DS;

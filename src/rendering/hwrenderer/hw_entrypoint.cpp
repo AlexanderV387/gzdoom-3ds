@@ -56,6 +56,13 @@ void CleanSWDrawer()
 #include "g_levellocals.h"
 #include "a_dynlight.h"
 
+#ifdef __3DS__
+// 3DS timing of the main view (averages per frame every 300 frames, "[VIEW] ...").
+#include "i_time.h"
+static uint64_t vw_setup = 0, vw_process = 0, vw_post = 0, vw_total = 0, vw_frames = 0;
+static uint64_t ViewUs3DS() { return I_nsTime() / 1000; }
+#endif
+
 
 void CollectLights(FLevelLocals* Level)
 {
@@ -97,6 +104,10 @@ void CollectLights(FLevelLocals* Level)
 sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen)
 {
 	auto& RenderState = *screen->RenderState();
+#ifdef __3DS__
+	const bool timed3DS = mainview && toscreen;
+	uint64_t v0_3DS = timed3DS ? ViewUs3DS() : 0, v1_3DS = 0, v2_3DS = 0, v3_3DS = 0;
+#endif
 
 	R_SetupFrame(mainvp, r_viewwindow, camera);
 
@@ -163,7 +174,13 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 		vp.Pos += eye.GetViewShift(vp.HWAngles.Yaw.Degrees());
 		di->SetupView(RenderState, vp.Pos.X, vp.Pos.Y, vp.Pos.Z, false, false);
 
+#ifdef __3DS__
+		if (timed3DS) v1_3DS = ViewUs3DS();
+#endif
 		di->ProcessScene(toscreen);
+#ifdef __3DS__
+		if (timed3DS) v2_3DS = ViewUs3DS();
+#endif
 
 		if (mainview)
 		{
@@ -178,6 +195,9 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 
 			screen->PostProcessScene(false, cm, flash, [&]() { di->DrawEndScene2D(mainvp.sector, RenderState); });
 			PostProcess.Unclock();
+#ifdef __3DS__
+			if (timed3DS) v3_3DS = ViewUs3DS();
+#endif
 		}
 		// Reset colormap so 2D drawing isn't affected
 		RenderState.SetSpecialColormap(CM_DEFAULT, 1);
@@ -187,6 +207,23 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 			screen->NextEye(eyeCount);
 	}
 
+#ifdef __3DS__
+	if (timed3DS && v3_3DS != 0)
+	{
+		const uint64_t v4_3DS = ViewUs3DS();
+		vw_setup += v1_3DS - v0_3DS;
+		vw_process += v2_3DS - v1_3DS;
+		vw_post += v3_3DS - v2_3DS;
+		vw_total += v4_3DS - v0_3DS;
+		if (++vw_frames >= 300)
+		{
+			const double n = (double)vw_frames * 1000.0;
+			Printf("[VIEW] per frame: total %.2f ms = setup %.2f + ProcessScene %.2f + EndDrawScene/PostProcess %.2f + rest %.2f\n",
+				vw_total / n, vw_setup / n, vw_process / n, vw_post / n, (vw_total - vw_setup - vw_process - vw_post) / n);
+			vw_setup = vw_process = vw_post = vw_total = vw_frames = 0;
+		}
+	}
+#endif
 	return mainvp.sector;
 }
 
