@@ -109,7 +109,7 @@ void FrameBegun(bool ok, int retries)
 	if (!ok && !Hang && retries >= 120)
 	{
 		Hang = true;
-		Line("GPU HANG: frame %d could not start after %d vblanks (2 s): the GPU never finished frame %d",
+		Line("GPU HANG: frame %d could not start after %d retries (2 s): the GPU never finished frame %d",
 			Frame, retries, Frame - 1);
 	}
 }

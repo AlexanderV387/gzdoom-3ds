@@ -231,7 +231,11 @@ void C3DFrameBuffer::ScreenBegin()
 		N3DS_LogFlush();
 	}
 	int retries = 0;
-	const int maxRetries = Diag::HangReported() ? 1 : 120;
+	// Test 85: the previous frame's GPU work is usually done within a few ms. Waiting a whole
+	// vblank per retry (up to 16.7 ms) made the frame wait far longer than the GPU needed
+	// ("gu" ~4 ms a frame). Poll every 0.25 ms instead; 8000 polls are still the 2 s that
+	// tell a slow frame from a hung GPU.
+	const int maxRetries = Diag::HangReported() ? 1 : 8000;
 	while (!ok && retries < maxRetries)
 	{
 		if (gameloop_abort)
@@ -244,7 +248,8 @@ void C3DFrameBuffer::ScreenBegin()
 			N3DS_Log(buf);
 			N3DS_LogFlush();
 		}
-		gspWaitForVBlank();
+		if (gameloop_abort) gspWaitForVBlank();
+		else svcSleepThread(250000);	// 0.25 ms
 		if (gameloop_abort)
 		{
 			char buf[128];
